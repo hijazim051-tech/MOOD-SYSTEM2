@@ -1,4 +1,4 @@
-const CACHE_NAME = "mood-shell-v1";
+const CACHE_NAME = "mood-shell-v2";
 const APP_SHELL = ["/", "/index.html", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
@@ -52,11 +52,15 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const targetUrl = event.notification.data?.url || "/";
+  const targetUrl = new URL(event.notification.data?.url || "/", self.location.origin).href;
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
-      const existing = clients.find((client) => "focus" in client);
-      return existing ? existing.focus() : self.clients.openWindow(targetUrl);
+      const existing = clients.find((client) => client.url.startsWith(self.location.origin));
+      if (existing) {
+        if ("navigate" in existing) existing.navigate(targetUrl);
+        return existing.focus();
+      }
+      return self.clients.openWindow(targetUrl);
     })
   );
 });

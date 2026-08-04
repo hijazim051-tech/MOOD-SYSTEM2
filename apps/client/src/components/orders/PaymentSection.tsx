@@ -5,6 +5,7 @@ export type PaymentData = {
   bankAmount: number;
   transferAmount: number;
   depositAmount: number;
+  depositMethod?: "cash" | "bank" | "transfer" | "none";
 
   deliveryFee: number;
 
@@ -108,6 +109,7 @@ export default function PaymentSection({ value, onChange }: Props) {
         cashAmount: 0,
         bankAmount: 0,
         transferAmount: 0,
+        depositMethod: value.depositMethod === "none" ? "cash" : value.depositMethod,
       });
       return;
     }
@@ -225,20 +227,39 @@ export default function PaymentSection({ value, onChange }: Props) {
 
           {(value.paymentMethod === "deposit" ||
             value.paymentMethod === "mixed") && (
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={value.depositAmount || ""}
-              onChange={(event) =>
-                update(
-                  "depositAmount",
-                  Number(event.target.value || 0)
-                )
-              }
-              className="rounded-xl border p-3"
-              placeholder="العربون"
-            />
+            <div className="grid grid-cols-1 gap-3 rounded-xl border bg-amber-50 p-3 md:col-span-2 md:grid-cols-2">
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={value.depositAmount || ""}
+                onChange={(event) =>
+                  update(
+                    "depositAmount",
+                    Number(event.target.value || 0)
+                  )
+                }
+                className="rounded-xl border bg-white p-3"
+                placeholder="قيمة العربون"
+              />
+              <select
+                value={value.depositMethod || "cash"}
+                onChange={(event) =>
+                  update(
+                    "depositMethod",
+                    event.target.value as PaymentData["depositMethod"]
+                  )
+                }
+                className="rounded-xl border bg-white p-3"
+              >
+                <option value="cash">العربون كاش</option>
+                <option value="bank">العربون خدمات مصرفية</option>
+                <option value="transfer">العربون تحويل</option>
+              </select>
+              <p className="text-sm text-amber-800 md:col-span-2">
+                اختر كيف استلم المحل الدفعة المقدمة حتى تظهر صحيحة في الحسابات والتقارير.
+              </p>
+            </div>
           )}
         </section>
 

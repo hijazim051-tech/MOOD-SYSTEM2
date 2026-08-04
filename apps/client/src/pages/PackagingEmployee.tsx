@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useBranch } from "../context/BranchContext";
 import { sendAutomaticWhatsApp } from "../lib/whatsapp";
-import { refreshWhatsAppSettings } from "../lib/whatsappSettings";
+import { loadWhatsAppSettings } from "../lib/whatsappSettings";
+import { sendSystemPush } from "../lib/pushNotifications";
 
 type UsageTier = {
   id: string;
@@ -682,14 +683,12 @@ export default function PackagingEmployee() {
 
       let readyWhatsAppError = "";
 
-      if (orderCompleted) {
+      if (
+        orderCompleted &&
+        loadWhatsAppSettings(selectedOrder.branchId).sendReadyMessage
+      ) {
         try {
-          const whatsappSettings = await refreshWhatsAppSettings(
-            selectedOrder.branchId
-          );
-
-          if (whatsappSettings.sendReadyMessage) {
-            await sendAutomaticWhatsApp(
+          await sendAutomaticWhatsApp(
             {
               id: selectedOrder.id,
               branchId: selectedOrder.branchId,
@@ -697,9 +696,8 @@ export default function PackagingEmployee() {
               customerName: selectedOrder.customerName,
               customerPhone: selectedOrder.customerPhone,
             },
-              "ready"
-            );
-          }
+            "ready"
+          );
         } catch (error) {
           readyWhatsAppError =
             error instanceof Error
@@ -714,6 +712,15 @@ export default function PackagingEmployee() {
       setCompletionImage(null);
       setCompletionImagePreview("");
       await loadData();
+
+      if (orderCompleted) {
+        void sendSystemPush({
+          title: "طلب جاهز",
+          message: `الطلب #${selectedOrder.orderNumber} أصبح جاهزًا`,
+          url: "/",
+          tag: `order-ready-${selectedOrder.id}`,
+        });
+      }
 
       if (orderCompleted && readyWhatsAppError) {
         alert(

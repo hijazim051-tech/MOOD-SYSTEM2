@@ -5,18 +5,14 @@ import type { PrintableOrder as PrintOrder } from "../components/printing/types"
 import { supabase } from "../lib/supabase";
 import { useBranch } from "../context/BranchContext";
 import { moveToTrash } from "../lib/trash";
-import {
-  normalizeLibyanPhone,
-  openInvoiceWhatsApp,
-  sendAutomaticWhatsApp,
-  sendCustomAutomaticWhatsApp,
-} from "../lib/whatsapp";
+import { openInvoiceWhatsApp, sendAutomaticWhatsApp } from "../lib/whatsapp";
 import { refreshWhatsAppSettings } from "../lib/whatsappSettings";
 import { transferOrderToBranch } from "../lib/branchStock";
 import {
   reopenOrder,
   resetOrderPackagingForEdit,
 } from "../lib/orderEditWorkflow";
+import { sendSystemPush } from "../lib/pushNotifications";
 
 type PackagingUsage = {
   usagePrice: number;
@@ -49,6 +45,7 @@ type PackagingItem = {
   packagingStartedAt: string;
   packagingCompletedAt: string;
   notes: string;
+  packagingImageUrl: string;
   usage: PackagingUsage[];
   externalContents: ExternalContent[];
 };
@@ -161,6 +158,19 @@ export default function Orders({
     moneyStatus: "with_driver",
     notes: "",
   });
+  const driverDirectory = useMemo(() => {
+    const map = new Map<string, { name: string; phone: string }>();
+    for (const order of orders) {
+      const name = order.deliveryDriverName.trim();
+      const phone = order.deliveryDriverPhone.trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      if (!map.has(key) || (!map.get(key)?.phone && phone)) {
+        map.set(key, { name, phone });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, "ar"));
+  }, [orders]);
 
   useEffect(() => {
     void loadOrders();
@@ -200,6 +210,7 @@ export default function Orders({
             packaging_value_difference,
             packaging_started_at,
             packaging_completed_at,
+            packaging_image_url,
             order_item_usage_tiers (
               usage_price,
               quantity,
@@ -293,6 +304,7 @@ export default function Orders({
           packagingStartedAt: String(item.packaging_started_at || ""),
           packagingCompletedAt: String(item.packaging_completed_at || ""),
           notes: String(item.notes || ""),
+          packagingImageUrl: String(item.packaging_image_url || ""),
           usage: (item.order_item_usage_tiers || []).map((usage: any) => ({
             usagePrice: Number(usage.usage_price || 0),
             quantity: Number(usage.quantity || 0),
@@ -509,15 +521,8 @@ export default function Orders({
     });
 
     try {
-      const messageBranchId = order.branchId || effectiveBranchId || null;
-      const whatsappSettings = await refreshWhatsAppSettings(messageBranchId);
-
-      if (whatsappSettings.sendReadyMessage) {
-        await sendAutomaticWhatsApp(
-          { ...order, branchId: messageBranchId },
-          "ready"
-        );
-      }
+      const whatsappSettings = await refreshWhatsAppSettings(order.branchId);
+      if (whatsappSettings.sendReadyMessage) await sendAutomaticWhatsApp(order, "ready");
     } catch (error) {
       alert(
         error instanceof Error
@@ -662,20 +667,11 @@ export default function Orders({
     if (!driverOrder) return;
 
     const driverName = driverForm.driverName.trim();
-    const driverPhone = normalizeLibyanPhone(driverForm.driverPhone);
-    const remaining = Math.max(
-      Math.round(Number(driverOrder.remainingAmount || 0)),
-      0
-    );
+    const remaining = Math.max(Math.round(Number(driverOrder.remainingAmount || 0)), 0);
     const amount = remaining;
 
     if (!driverName) {
       alert("اكتب اسم المندوب.");
-      return;
-    }
-
-    if (!driverPhone) {
-      alert("اكتب رقم هاتف المندوب لإرسال بيانات الطلب إليه.");
       return;
     }
 
@@ -694,7 +690,7 @@ export default function Orders({
           status: "out_for_delivery",
           delivery_status: "out_for_delivery",
           delivery_driver_name: driverName,
-          delivery_driver_phone: driverPhone,
+          delivery_driver_phone: driverForm.driverPhone.trim() || null,
           handed_to_driver_at: now,
           driver_collection_amount: amount,
           driver_money_status: driverForm.moneyStatus,
@@ -710,92 +706,33 @@ export default function Orders({
 
       if (error) throw error;
 
-      const whatsappErrors: string[] = [];
-      const messageBranchId =
-        driverOrder.branchId || effectiveBranchId || null;
-      const whatsappSettings = await refreshWhatsAppSettings(messageBranchId);
-
-      if (whatsappSettings.sendDriverHandoverMessage) {
-        try {
-          await sendAutomaticWhatsApp(
-            {
-              ...driverOrder,
-              branchId: messageBranchId,
-              delegateName: driverName,
-              deliveryDriverName: driverName,
-            },
-            "driver_handover"
-          );
-        } catch (error) {
-          whatsappErrors.push(
-            `رسالة العميل: ${
-              error instanceof Error ? error.message : "تعذر الإرسال"
-            }`
-          );
-        }
-
-        const driverMessage = [
-          `مرحبًا ${driverName} 🚚`,
-          `تم تسليمك الطلب رقم #${driverOrder.orderNumber}.`,
-          "",
-          `اسم العميل: ${driverOrder.customerName || "-"}`,
-          `هاتف العميل: ${driverOrder.customerPhone || "-"}`,
-          driverOrder.recipientPhone
-            ? `هاتف المستلم: ${driverOrder.recipientPhone}`
-            : "",
-          `العنوان: ${driverOrder.deliveryAddress || "-"}`,
-          driverOrder.deliveryDate || driverOrder.deliveryTime
-            ? `موعد التسليم: ${[
-                driverOrder.deliveryDate,
-                driverOrder.deliveryTime,
-              ]
-                .filter(Boolean)
-                .join(" — ")}`
-            : "",
-          `المبلغ المطلوب تحصيله: ${amount.toFixed(2)} د.ل`,
-          `رسوم التوصيل: ${Number(driverOrder.deliveryFee || 0).toFixed(2)} د.ل`,
-          driverOrder.notes ? `ملاحظات الطلب: ${driverOrder.notes}` : "",
-          driverForm.notes.trim()
-            ? `ملاحظات للمندوب: ${driverForm.notes.trim()}`
-            : "",
-        ]
-          .filter(Boolean)
-          .join("\n");
-
-        try {
-          await sendCustomAutomaticWhatsApp(
-            driverPhone,
-            driverMessage,
-            messageBranchId,
-            {
-              ...driverOrder,
-              branchId: messageBranchId,
-              delegateName: driverName,
-              deliveryDriverName: driverName,
-            },
-            "driver_handover"
-          );
-        } catch (error) {
-          whatsappErrors.push(
-            `رسالة المندوب: ${
-              error instanceof Error ? error.message : "تعذر الإرسال"
-            }`
-          );
-        }
-      }
-
       setDriverOrder(null);
       setSelectedOrder(null);
       await loadOrders();
+      alert("تم تسجيل استلام المندوب للطلب ✅");
+      void sendSystemPush({
+        title: "الطلب خرج للتوصيل",
+        message: `الطلب #${driverOrder.orderNumber} مع المندوب ${driverName}`,
+        url: "/",
+        tag: `driver-handover-${driverOrder.id}`,
+      });
 
-      if (whatsappErrors.length > 0) {
-        alert(
-          `تم تسجيل استلام المندوب للطلب ✅\n\nلكن حدثت مشكلة في واتساب:\n${whatsappErrors.join(
-            "\n"
-          )}`
+      try {
+        const whatsappSettings = await refreshWhatsAppSettings(driverOrder.branchId);
+        if (whatsappSettings.sendDriverHandoverMessage) await sendAutomaticWhatsApp(
+          {
+            ...driverOrder,
+            delegateName: driverName,
+            deliveryDriverName: driverName,
+          },
+          "driver_handover"
         );
-      } else {
-        alert("تم تسجيل استلام المندوب وإرسال الرسائل للعميل والمندوب ✅");
+      } catch (error) {
+        alert(
+          error instanceof Error
+            ? `تم تسليم الطلب للمندوب، لكن تعذر إرسال الرسالة: ${error.message}`
+            : "تم تسليم الطلب للمندوب، لكن تعذر إرسال الرسالة"
+        );
       }
     } catch (error: unknown) {
       alert(getErrorMessage(error));
@@ -1382,14 +1319,27 @@ export default function Orders({
               <input
                 className={inputClass}
                 value={driverForm.driverName}
-                onChange={(event) =>
+                list="mood-driver-directory"
+                onChange={(event) => {
+                  const name = event.target.value;
+                  const match = driverDirectory.find(
+                    (driver) => driver.name.toLowerCase() === name.trim().toLowerCase()
+                  );
                   setDriverForm((current) => ({
                     ...current,
-                    driverName: event.target.value,
-                  }))
-                }
-                placeholder="اسم المندوب"
+                    driverName: name,
+                    driverPhone: match?.phone || current.driverPhone,
+                  }));
+                }}
+                placeholder="اكتب أول حروف اسم المندوب"
               />
+              <datalist id="mood-driver-directory">
+                {driverDirectory.map((driver) => (
+                  <option key={`${driver.name}-${driver.phone}`} value={driver.name}>
+                    {driver.phone}
+                  </option>
+                ))}
+              </datalist>
             </Field>
 
             <Field label="رقم هاتف المندوب">
@@ -1757,6 +1707,28 @@ function OrderDetailsDialog({
                       </span>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {item.packagingImageUrl && (
+                <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <p className="font-bold text-emerald-900">صورة تجهيز الطلب — مرجع داخلي فقط</p>
+                    <a
+                      href={item.packagingImageUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-bold text-white"
+                    >
+                      فتح بالحجم الكامل
+                    </a>
+                  </div>
+                  <img
+                    src={item.packagingImageUrl}
+                    alt={`صورة تجهيز ${item.title}`}
+                    className="max-h-96 w-full rounded-xl object-contain bg-white"
+                  />
+                  <p className="mt-2 text-xs text-emerald-800">هذه الصورة لا تُرسل للعميل وتظهر فقط داخل تفاصيل الطلب.</p>
                 </div>
               )}
 

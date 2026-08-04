@@ -1,3 +1,15 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { supabase } from "../../lib/supabase";
+
+type CustomerSuggestion = {
+  customerName: string;
+  customerPhone: string;
+  recipientPhone: string;
+  occasion: string;
+  address: string;
+  notes: string;
+};
+
 export type CustomerInfoData = {
   customerName: string;
   customerPhone: string;
@@ -15,6 +27,81 @@ type Props = {
 };
 
 export default function CustomerInfo({ value, onChange }: Props) {
+  const [suggestions, setSuggestions] = useState<CustomerSuggestion[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const requestIdRef = useRef(0);
+
+  const normalizedName = useMemo(
+    () => value.customerName.trim(),
+    [value.customerName]
+  );
+
+  useEffect(() => {
+    if (normalizedName.length < 1) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    const requestId = ++requestIdRef.current;
+    const timer = window.setTimeout(async () => {
+      setLoadingSuggestions(true);
+      try {
+        const { data, error } = await supabase
+          .from("orders")
+          .select("customer_name,customer_phone,recipient_phone,occasion,delivery_address,notes,created_at")
+          .ilike("customer_name", `%${normalizedName}%`)
+          .order("created_at", { ascending: false })
+          .limit(30);
+
+        if (error) throw error;
+        if (requestId !== requestIdRef.current) return;
+
+        const seen = new Set<string>();
+        const unique = (data || [])
+          .map((row: any) => ({
+            customerName: String(row.customer_name || "").trim(),
+            customerPhone: String(row.customer_phone || "").trim(),
+            recipientPhone: String(row.recipient_phone || "").trim(),
+            occasion: String(row.occasion || "").trim(),
+            address: String(row.delivery_address || "").trim(),
+            notes: String(row.notes || "").trim(),
+          }))
+          .filter((item) => {
+            if (!item.customerName) return false;
+            const key = `${item.customerName.toLowerCase()}__${item.customerPhone}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          })
+          .slice(0, 8);
+
+        setSuggestions(unique);
+        setShowSuggestions(unique.length > 0);
+      } catch (error) {
+        console.error("تعذر تحميل العملاء السابقين:", error);
+        setSuggestions([]);
+      } finally {
+        if (requestId === requestIdRef.current) setLoadingSuggestions(false);
+      }
+    }, 220);
+
+    return () => window.clearTimeout(timer);
+  }, [normalizedName]);
+
+  function selectCustomer(customer: CustomerSuggestion) {
+    onChange({
+      ...value,
+      customerName: customer.customerName,
+      customerPhone: customer.customerPhone,
+      recipientPhone: customer.recipientPhone || value.recipientPhone,
+      occasion: customer.occasion || value.occasion,
+      address: customer.address || value.address,
+      notes: value.notes || customer.notes,
+    });
+    setShowSuggestions(false);
+  }
   function update(field: keyof CustomerInfoData, fieldValue: string) {
     onChange({
       ...value,
@@ -27,12 +114,39 @@ export default function CustomerInfo({ value, onChange }: Props) {
       <h2 className="mb-5 text-2xl font-bold">بيانات العميل</h2>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <input
-          value={value.customerName}
-          onChange={(e) => update("customerName", e.target.value)}
-          className="rounded-xl border p-3"
-          placeholder="اسم العميل"
-        />
+        <div className="relative">
+          <input
+            value={value.customerName}
+            onChange={(e) => {
+              update("customerName", e.target.value);
+              setShowSuggestions(true);
+            }}
+            onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+            onBlur={() => window.setTimeout(() => setShowSuggestions(false), 180)}
+            className="w-full rounded-xl border p-3"
+            placeholder="اسم العميل"
+            autoComplete="off"
+          />
+          {loadingSuggestions && (
+            <span className="absolute left-3 top-3 text-xs text-gray-400">جاري البحث...</span>
+          )}
+          {showSuggestions && suggestions.length > 0 && (
+            <div className="absolute z-50 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border bg-white shadow-xl">
+              {suggestions.map((customer) => (
+                <button
+                  key={`${customer.customerName}-${customer.customerPhone}`}
+                  type="button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => selectCustomer(customer)}
+                  className="block w-full border-b px-4 py-3 text-right hover:bg-emerald-50 last:border-b-0"
+                >
+                  <p className="font-bold text-gray-900">{customer.customerName}</p>
+                  <p className="mt-1 text-sm text-gray-500">{customer.customerPhone || "بدون رقم"}</p>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         <input
           value={value.customerPhone}

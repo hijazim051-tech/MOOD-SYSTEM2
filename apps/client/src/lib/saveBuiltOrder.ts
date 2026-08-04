@@ -6,6 +6,7 @@ import {
   type CustomerInfoInput,
   type PaymentInput,
 } from "./orderBuilder";
+import { sendSystemPush } from "./pushNotifications";
 
 type ExtendedBuilderItem = BuilderItem & {
   contentValue?: number;
@@ -405,6 +406,13 @@ export async function saveBuiltOrder(input: {
 
     if (stockError) throw stockError;
   }
+
+  void sendSystemPush({
+    title: "طلب جديد",
+    message: `تم إنشاء الطلب #${orderData.order_number || orderData.id} للعميل ${customer.customerName}`,
+    url: "/",
+    tag: `new-order-${orderData.id}`,
+  });
 
   return orderData;
 }

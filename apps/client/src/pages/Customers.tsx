@@ -242,6 +242,7 @@ export default function Customers() {
             bankAmount: 0,
             transferAmount: 0,
             depositAmount: 0,
+            depositMethod: "cash",
             deliveryFee: 0,
             deliveryPaidCash: false,
             deliveryPaymentMethod: "none",

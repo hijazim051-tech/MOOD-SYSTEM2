@@ -147,45 +147,6 @@ Deno.serve(async (req) => {
       body = {};
     }
 
-    const {
-      data: profile,
-      error: profileError,
-    } = await admin
-      .from("user_profiles")
-      .select("role,roles(name)")
-      .eq("id", user.id)
-      .maybeSingle();
-
-    if (profileError) {
-      console.error(
-        "PROFILE ERROR:",
-        profileError,
-      );
-
-      throw profileError;
-    }
-
-    const role = String(
-      (profile as any)?.roles?.name ||
-        (profile as any)?.role ||
-        "",
-    ).toLowerCase();
-
-    if (
-      !["owner", "admin", "manager"].includes(
-        role,
-      )
-    ) {
-      return jsonResponse(
-        {
-          error: "Forbidden",
-          details:
-            `User role is ${role || "unknown"}`,
-        },
-        403,
-      );
-    }
-
     let query = admin
       .from("push_subscriptions")
       .select(

@@ -113,6 +113,7 @@ export async function loadOrderForEdit(
     bankAmount: Number(data.bank_amount || 0),
     transferAmount: Number(data.transfer_amount || 0),
     depositAmount: Number(data.deposit_amount || 0),
+    depositMethod: String(data.deposit_method || "cash"),
     deliveryFee: Number(data.delivery_fee || 0),
     deliveryPaidCash: Boolean(data.delivery_paid_cash),
     deliveryPaymentMethod: String(
