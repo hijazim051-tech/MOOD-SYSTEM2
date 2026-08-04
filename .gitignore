@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+.env.*
+apps/client/node_modules/
+apps/client/dist/
+.vercel

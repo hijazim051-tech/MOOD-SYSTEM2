@@ -1,0 +1,7 @@
+MOOD-SYSTEM2 cleanup
+
+- Removed the accidental duplicate application folder: apps/client/apps/client
+- Kept one active frontend only: apps/client/src
+- Updated the active Orders.tsx with the ready-message and driver-message fixes.
+- Updated PackagingEmployee.tsx to refresh branch WhatsApp settings before checking and sending the ready message.
+- No database credentials or environment secrets were added.

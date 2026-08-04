@@ -1,0 +1,16 @@
+MOOD v2 - Completion batch
+
+Added in this batch:
+- Per-user notification preferences (in-app / push / branch) from Users page.
+- Notification preferences are applied to the logged-in user's notification center and push display.
+- WhatsApp button directly on every order card, inside order details, and after order save.
+- WhatsApp message logging table and client-side logging when WhatsApp is opened.
+- Product tracking analytics: daily/weekly/monthly sales, 30-day profit, turnover rate, expected stock-out, last sale, and best suppliers.
+- Additional detailed permissions for notifications, WhatsApp, analytics, and attendance.
+
+Required SQL:
+supabase/migrations/20260726_mood_v2_completion.sql
+
+Notes:
+- WhatsApp currently opens WhatsApp/WhatsApp Web with a prepared message. Fully automatic sending requires the official WhatsApp Business API and is not included in this local-only batch.
+- Run npm install and npm run build from apps/client after extracting.
