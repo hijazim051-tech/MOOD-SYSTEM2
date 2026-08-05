@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   getAppPermissions,
   getUserPermissionOverrides,
+  getRolePermissionIds,
   saveUserPermissionOverrides,
   type AppPermission,
   type UserProfile,
@@ -13,7 +14,7 @@ type Props = {
   onClose: () => void;
 };
 
-type PermissionState = Record<string, "default" | "allow" | "deny">;
+type PermissionState = Record<string, "allow" | "deny">;
 
 export default function UserPermissionsDialog({
   open,
@@ -38,17 +39,19 @@ export default function UserPermissionsDialog({
     setLoading(true);
 
     try {
-      const [permissionsData, overridesData] = await Promise.all([
+      const [permissionsData, overridesData, rolePermissionIds] = await Promise.all([
         getAppPermissions(),
         getUserPermissionOverrides(user.id),
+        user.role_id ? getRolePermissionIds(user.role_id) : Promise.resolve([]),
       ]);
 
       setPermissions(permissionsData);
 
       const nextStates: PermissionState = {};
 
+      const roleAllowed = new Set(rolePermissionIds);
       permissionsData.forEach((permission) => {
-        nextStates[permission.id] = "default";
+        nextStates[permission.id] = roleAllowed.has(permission.id) ? "allow" : "deny";
       });
 
       overridesData.forEach((override) => {
@@ -67,7 +70,7 @@ export default function UserPermissionsDialog({
 
   function setPermissionState(
     permissionId: string,
-    state: "default" | "allow" | "deny"
+    state: "allow" | "deny"
   ) {
     setPermissionStates((prev) => ({
       ...prev,
@@ -82,7 +85,6 @@ export default function UserPermissionsDialog({
 
     try {
       const overrides = Object.entries(permissionStates)
-        .filter(([, state]) => state !== "default")
         .map(([permissionId, state]) => ({
           permissionId,
           allowed: state === "allow",
@@ -99,8 +101,10 @@ export default function UserPermissionsDialog({
     setSaving(false);
   }
 
+  const pagePermissions = useMemo(() => permissions.filter((permission) => permission.code.startsWith("page.")), [permissions]);
+
   const groupedPermissions = useMemo(() => {
-    return permissions.reduce<Record<string, AppPermission[]>>(
+    return pagePermissions.reduce<Record<string, AppPermission[]>>(
       (groups, permission) => {
         const groupName = permission.group_name || "عام";
 
@@ -113,7 +117,7 @@ export default function UserPermissionsDialog({
       },
       {}
     );
-  }, [permissions]);
+  }, [pagePermissions]);
 
   if (!open || !user) return null;
 
@@ -139,9 +143,8 @@ export default function UserPermissionsDialog({
           </button>
         </div>
 
-        <div className="mb-5 rounded-xl bg-blue-50 p-4 text-sm text-blue-800">
-          الافتراضي: يستخدم صلاحيات الدور — سماح: يضيف الصلاحية للمستخدم —
-          منع: يمنع الصلاحية عن المستخدم.
+        <div className="mb-5 rounded-xl bg-blue-50 p-4 text-sm font-semibold text-blue-800">
+          افتح أو اقفل الصفحات لهذا المستخدم. الصفحة المقفولة لا تظهر في القائمة ولا يمكن فتحها من داخل النظام.
         </div>
 
         {loading ? (
@@ -159,7 +162,7 @@ export default function UserPermissionsDialog({
                 <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
                   {items.map((permission) => {
                     const state =
-                      permissionStates[permission.id] || "default";
+                      permissionStates[permission.id] || "deny";
 
                     return (
                       <div
@@ -173,49 +176,18 @@ export default function UserPermissionsDialog({
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-3 gap-2">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setPermissionState(permission.id, "default")
-                            }
-                            className={`rounded-lg px-3 py-2 text-sm ${
-                              state === "default"
-                                ? "bg-gray-700 text-white"
-                                : "bg-gray-100 text-gray-700"
-                            }`}
-                          >
-                            افتراضي
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setPermissionState(permission.id, "allow")
-                            }
-                            className={`rounded-lg px-3 py-2 text-sm ${
-                              state === "allow"
-                                ? "bg-green-700 text-white"
-                                : "bg-green-100 text-green-700"
-                            }`}
-                          >
-                            سماح
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setPermissionState(permission.id, "deny")
-                            }
-                            className={`rounded-lg px-3 py-2 text-sm ${
-                              state === "deny"
-                                ? "bg-red-700 text-white"
-                                : "bg-red-100 text-red-700"
-                            }`}
-                          >
-                            منع
-                          </button>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setPermissionState(permission.id, state === "allow" ? "deny" : "allow")}
+                          className={`flex w-full items-center justify-between rounded-xl px-4 py-3 font-bold transition ${
+                            state === "allow" ? "bg-emerald-100 text-emerald-800" : "bg-gray-100 text-gray-600"
+                          }`}
+                        >
+                          <span>{state === "allow" ? "الصفحة مفتوحة" : "الصفحة مقفولة"}</span>
+                          <span className={`relative h-7 w-12 rounded-full transition ${state === "allow" ? "bg-emerald-600" : "bg-gray-300"}`}>
+                            <span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition ${state === "allow" ? "left-1" : "right-1"}`} />
+                          </span>
+                        </button>
                       </div>
                     );
                   })}

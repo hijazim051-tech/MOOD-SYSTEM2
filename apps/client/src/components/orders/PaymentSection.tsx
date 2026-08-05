@@ -1,3 +1,6 @@
+import { useEffect, useState } from "react";
+import { supabase } from "../../lib/supabase";
+import { useBranch } from "../../context/BranchContext";
 export type PaymentData = {
   paymentMethod: "cash" | "bank" | "transfer" | "deposit" | "mixed";
 
@@ -44,6 +47,20 @@ type Props = {
 };
 
 export default function PaymentSection({ value, onChange }: Props) {
+  const { effectiveBranchId } = useBranch();
+  const [driverNames, setDriverNames] = useState<string[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadDrivers() {
+      let query = supabase.from("delivery_drivers").select("name").eq("is_active", true).order("name");
+      if (effectiveBranchId) query = query.eq("branch_id", effectiveBranchId);
+      const { data } = await query;
+      if (!cancelled) setDriverNames((data || []).map((row: any) => String(row.name || "")).filter(Boolean));
+    }
+    void loadDrivers();
+    return () => { cancelled = true; };
+  }, [effectiveBranchId]);
   function update<K extends keyof PaymentData>(
     field: K,
     fieldValue: PaymentData[K]
@@ -324,7 +341,9 @@ export default function PaymentSection({ value, onChange }: Props) {
               </option>
             </select>
 
+            <div className="relative">
             <input
+              list="mood-delivery-drivers"
               value={value.deliveryDriverName}
               onChange={(event) =>
                 update(
@@ -334,8 +353,12 @@ export default function PaymentSection({ value, onChange }: Props) {
               }
               disabled={value.deliveryPaymentMethod === "none"}
               className="rounded-xl border p-3 disabled:bg-gray-100"
-              placeholder="اسم الكابتن"
+              placeholder="اكتب أول حروف اسم الكابتن"
             />
+            <datalist id="mood-delivery-drivers">
+              {driverNames.map((name) => <option key={name} value={name} />)}
+            </datalist>
+            </div>
 
             <input
               value={value.deliveryAddress}

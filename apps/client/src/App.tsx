@@ -44,6 +44,9 @@ import AdvancedOperations from "./pages/AdvancedOperations";
 import GrowthCenter from "./pages/GrowthCenter";
 import WhatsAppLogs from "./pages/WhatsAppLogs";
 import Trash from "./pages/Trash";
+import Drivers from "./pages/Drivers";
+import Withdrawals from "./pages/Withdrawals";
+import { getCurrentUserPageAccess } from "./lib/pageAccess";
 import { getUserNotificationPreferences, preferenceMap, type UserNotificationPreference } from "./lib/notificationPreferences";
 import { BranchProvider, useBranch } from "./context/BranchContext";
 import { refreshWhatsAppSettings } from "./lib/whatsappSettings";
@@ -68,6 +71,7 @@ function App() {
   const [userBranchId, setUserBranchId] = useState<string | null>(null);
   const [canViewAllBranches, setCanViewAllBranches] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [allowedPages, setAllowedPages] = useState<Set<string> | null>(null);
   const [notificationPreferences, setNotificationPreferences] = useState<Map<string, UserNotificationPreference>>(new Map());
 
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -155,6 +159,12 @@ function App() {
         setUserBranchId(profile.branch_id || null);
         setCanViewAllBranches(Boolean(profile.access_all_branches) || ["owner", "admin"].includes(role));
         console.log("Role from Supabase:", role);
+        try {
+          setAllowedPages(await getCurrentUserPageAccess(role));
+        } catch (error) {
+          console.warn("تعذر تحميل صلاحيات الصفحات:", error);
+          setAllowedPages(["owner", "admin"].includes(role) ? null : new Set(["dashboard"]));
+        }
       }
 
       void refreshWhatsAppSettings();
@@ -437,6 +447,13 @@ function App() {
     setNotificationsOpen(false);
   }
 
+  useEffect(() => {
+    if (allowedPages && !allowedPages.has(page)) {
+      const fallback = allowedPages.has("dashboard") ? "dashboard" : Array.from(allowedPages)[0];
+      if (fallback) setPage(fallback);
+    }
+  }, [allowedPages, page]);
+
   const notificationCount = notifications.length;
 
   const notificationGroups = useMemo(
@@ -478,6 +495,7 @@ function App() {
         userRole={userRole}
         mobileOpen={mobileMenuOpen}
         onCloseMobile={() => setMobileMenuOpen(false)}
+        allowedPages={allowedPages}
       />
 
       <main className="min-w-0 flex-1 overflow-x-hidden">
@@ -525,6 +543,8 @@ function App() {
         {page === "advanced-operations" && <AdvancedOperations />}
         {page === "growth-center" && <GrowthCenter />}
         {page === "attendance" && <Attendance />}
+        {page === "withdrawals" && <Withdrawals />}
+        {page === "drivers" && <Drivers />}
         {page === "customers" && <Customers />}
         {page === "employees" && <Employees />}
 
@@ -685,8 +705,7 @@ function BranchHeader({
           </div>
         </div>
 
-        <PwaControls />
-        <BranchSelector />
+        <div className="hidden items-center gap-2 md:flex"><PwaControls /><BranchSelector /></div>
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
@@ -823,9 +842,10 @@ function BranchHeader({
         <button
           type="button"
           onClick={() => void logout()}
-          className="rounded-lg bg-red-100 px-3 py-2 text-sm font-semibold text-red-700 sm:px-4 sm:text-base"
+          className="flex h-11 items-center justify-center rounded-xl bg-red-100 px-3 text-sm font-bold text-red-700 sm:px-4"
+          title="تسجيل خروج"
         >
-          تسجيل خروج
+          <span className="sm:hidden">↪</span><span className="hidden sm:inline">تسجيل خروج</span>
         </button>
       </div>
     </div>

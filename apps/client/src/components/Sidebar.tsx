@@ -7,6 +7,7 @@ type SidebarProps = {
   userRole: string;
   mobileOpen?: boolean;
   onCloseMobile?: () => void;
+  allowedPages?: Set<string> | null;
 };
 
 type MenuItem = {
@@ -56,6 +57,8 @@ const items: MenuItem[] = [
   { key: "customers", label: "👥 العملاء" },
   { key: "employees", label: "👨‍💼 الموظفون" },
   { key: "attendance", label: "📍 الحضور والانصراف" },
+  { key: "withdrawals", label: "💵 مسحوبات الموظفين" },
+  { key: "drivers", label: "🚚 مندوبو التوصيل" },
   {
     key: "branches",
     label: "🏢 الفروع",
@@ -85,6 +88,7 @@ export default function Sidebar({
   userRole,
   mobileOpen = false,
   onCloseMobile,
+  allowedPages = null,
 }: SidebarProps) {
   const normalizedRole = String(
     userRole || "employee"
@@ -177,10 +181,9 @@ export default function Sidebar({
         <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-6">
           <ul className="space-y-2 text-base lg:text-lg">
             {items
-              .filter(
-                (item) =>
-                  !item.roles ||
-                  item.roles.includes(normalizedRole)
+              .filter((item) =>
+                (!item.roles || item.roles.includes(normalizedRole)) &&
+                (allowedPages === null || allowedPages.has(item.key))
               )
               .map((item) => {
                 const active = page === item.key;

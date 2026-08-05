@@ -91,3 +91,16 @@ a,
     overscroll-behavior-y: contain;
   }
 }
+
+/* Professional responsive pass */
+html, body, #root { max-width: 100%; overflow-x: hidden; }
+.app-page-shell { min-width: 0; width: 100%; }
+@media (max-width: 640px) {
+  .app-page-shell { padding-bottom: env(safe-area-inset-bottom, 12px); }
+  table { font-size: 0.82rem; }
+  input, select, textarea, button { min-height: 44px; }
+  .mobile-card-table thead { display: none; }
+  .mobile-card-table, .mobile-card-table tbody, .mobile-card-table tr, .mobile-card-table td { display: block; width: 100%; }
+  .mobile-card-table tr { margin-bottom: 12px; border: 1px solid #e5e7eb; border-radius: 16px; padding: 10px; background: white; }
+  .mobile-card-table td { border: 0; padding: 6px 4px; }
+}
