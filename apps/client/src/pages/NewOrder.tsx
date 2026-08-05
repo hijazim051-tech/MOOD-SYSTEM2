@@ -128,7 +128,8 @@ export default function NewOrder() {
   const [showMobileSummary, setShowMobileSummary] = useState(false);
   const [customerExpanded, setCustomerExpanded] = useState(true);
   const [itemsExpanded, setItemsExpanded] = useState(true);
-  const [paymentExpanded, setPaymentExpanded] = useState(true);
+  const [currentStep, setCurrentStep] = useState(1);
+  const [lastAutoSavedAt, setLastAutoSavedAt] = useState<string | null>(null);
 
   useEffect(() => {
     void loadPageData();
@@ -155,6 +156,39 @@ export default function NewOrder() {
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [hasUnsavedChanges, saving, successData]);
+
+  useEffect(() => {
+    if (!hasUnsavedChanges || saving || successData || loading) return;
+
+    const timeoutId = window.setTimeout(() => {
+      const savedAt = new Date().toISOString();
+
+      localStorage.setItem(
+        DRAFT_STORAGE_KEY,
+        JSON.stringify({
+          entries,
+          customer,
+          payment,
+          currentStep,
+          savedAt,
+        })
+      );
+
+      setDraftSaved(true);
+      setLastAutoSavedAt(savedAt);
+    }, 700);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    entries,
+    customer,
+    payment,
+    currentStep,
+    hasUnsavedChanges,
+    saving,
+    successData,
+    loading,
+  ]);
 
   useEffect(() => {
     const handleKeyboardSave = (event: KeyboardEvent) => {
@@ -226,6 +260,7 @@ export default function NewOrder() {
         entries?: NewOrderEntry[];
         customer?: CustomerInfoData;
         payment?: PaymentData;
+        currentStep?: number;
       };
 
       const hasDraftContent =
@@ -258,6 +293,7 @@ export default function NewOrder() {
       setEntries(restoredEntries);
       setCustomer(draft.customer || { ...emptyCustomer });
       setPayment(draft.payment || { ...emptyPayment });
+      setCurrentStep(Number(draft.currentStep || 1));
       setOpenEntryId(restoredEntries[0]?.data.tempId || null);
       setDraftSaved(true);
     } catch (error) {
@@ -272,10 +308,12 @@ export default function NewOrder() {
         entries,
         customer,
         payment,
+        currentStep,
         savedAt: new Date().toISOString(),
       })
     );
     setDraftSaved(true);
+    setLastAutoSavedAt(new Date().toISOString());
     alert("تم حفظ الطلب كمسودة ✅");
   }
 
@@ -429,14 +467,7 @@ export default function NewOrder() {
     Boolean(customer.customerName.trim()) &&
     Boolean(customer.customerPhone.trim());
   const itemsComplete = entries.length > 0;
-  const paymentComplete =
-    finalTotal >= 0 &&
-    totalPaid >= 0 &&
-    Number(payment.discount || 0) >= 0 &&
-    Number(payment.deliveryFee || 0) >= 0;
-  const reviewComplete =
-    customerComplete && itemsComplete && paymentComplete;
-
+  
   function validateOrder() {
     const errors: string[] = [];
 
@@ -539,12 +570,12 @@ export default function NewOrder() {
     const errors = validateOrder();
 
     if (errors.length > 0) {
-      alert(
-        `لا يمكن حفظ الطلب:\n\n${errors
+      const proceed = confirm(
+        `تنبيهات قبل الحفظ (لا تمنع الحفظ):\n\n${errors
           .map((error, index) => `${index + 1}. ${error}`)
-          .join("\n")}`
+          .join("\n")}\n\nهل تريد الحفظ رغم هذه التنبيهات؟`
       );
-      return;
+      if (!proceed) return;
     }
 
     if (
@@ -609,21 +640,24 @@ export default function NewOrder() {
 
       setSuccessData(successSnapshot);
 
-    if (!wasEditing) {
-  try {
-    await shareInvoicePdfToWhatsApp({
-      ...successSnapshot,
-      id: Number(result?.id ?? 0),
-      orderNumber,
-      branchId: effectiveBranchId,
-    } as unknown as Parameters<typeof shareInvoicePdfToWhatsApp>[0]);
-  } catch (whatsappError) {
-          console.error("تعذر إرسال فاتورة PDF تلقائيًا:", whatsappError);
-          alert(
-            whatsappError instanceof Error
-              ? `تم حفظ الطلب، لكن تعذر إرسال فاتورة PDF: ${whatsappError.message}`
-              : "تم حفظ الطلب، لكن تعذر إرسال فاتورة PDF عبر واتساب."
-          );
+      if (!wasEditing) {
+        const printableOrder = {
+          ...successSnapshot, id: Number(result?.id ?? 0), orderNumber, branchId: effectiveBranchId,
+        } as unknown as Parameters<typeof shareInvoicePdfToWhatsApp>[0];
+        let pdfError: unknown = null;
+        for (let attempt = 1; attempt <= 2; attempt += 1) {
+          try {
+            if (attempt > 1) await new Promise((resolve) => window.setTimeout(resolve, 1200));
+            await shareInvoicePdfToWhatsApp(printableOrder);
+            pdfError = null;
+            break;
+          } catch (error) { pdfError = error; }
+        }
+        if (pdfError) {
+          console.error("تعذر إرسال فاتورة PDF تلقائيًا بعد محاولتين:", pdfError);
+          alert(pdfError instanceof Error
+            ? `تم حفظ الطلب، لكن تعذر إرسال فاتورة PDF تلقائيًا: ${pdfError.message}\nيمكنك إعادة الإرسال من زر واتساب.`
+            : "تم حفظ الطلب، لكن تعذر إرسال فاتورة PDF تلقائيًا. يمكنك إعادة الإرسال من زر واتساب.");
         }
       }
 
@@ -755,19 +789,21 @@ export default function NewOrder() {
         </div>
       </div>
 
-      <nav className="sticky top-2 z-20 flex gap-2 overflow-x-auto rounded-2xl border border-gray-100 bg-white/95 p-2 shadow-lg backdrop-blur md:grid md:grid-cols-4">
-        <a href="#customer-section" className="min-w-[112px] flex-1 rounded-xl bg-gray-50 px-3 py-3 text-center text-sm font-black text-gray-700 hover:bg-emerald-50 hover:text-emerald-700">1. العميل</a>
-        <a href="#items-section" className="min-w-[112px] flex-1 rounded-xl bg-gray-50 px-3 py-3 text-center text-sm font-black text-gray-700 hover:bg-emerald-50 hover:text-emerald-700">2. المنتجات</a>
-        <a href="#payment-section" className="min-w-[112px] flex-1 rounded-xl bg-gray-50 px-3 py-3 text-center text-sm font-black text-gray-700 hover:bg-emerald-50 hover:text-emerald-700">3. الدفع</a>
-        <a href="#save-section" className="min-w-[112px] flex-1 rounded-xl bg-emerald-700 px-3 py-3 text-center text-sm font-black text-white hover:bg-emerald-800">4. الحفظ</a>
+      <nav className="sticky top-2 z-20 flex gap-2 overflow-x-auto rounded-2xl border border-gray-100 bg-white/95 p-2 shadow-lg backdrop-blur">
+        {[
+          [1, "العميل"], [2, "الطلب"], [3, "التوصيل"], [4, "الدفع"], [5, "المراجعة"],
+        ].map(([step, label]) => (
+          <button key={step} type="button" onClick={() => setCurrentStep(Number(step))}
+            className={`min-w-[108px] flex-1 rounded-xl px-3 py-3 text-center text-sm font-black ${currentStep === step ? "bg-emerald-700 text-white" : Number(step) < currentStep ? "bg-emerald-50 text-emerald-700" : "bg-gray-50 text-gray-600"}`}>
+            {Number(step) < currentStep ? "✓ " : ""}{step}. {label}
+          </button>
+        ))}
       </nav>
 
-      <ProgressBar
-        customerComplete={customerComplete}
-        itemsComplete={itemsComplete}
-        paymentComplete={paymentComplete}
-        reviewComplete={reviewComplete}
-      />
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-blue-50 px-4 py-3 text-sm text-blue-800">
+        <span>{draftSaved ? "المسودة محفوظة تلقائيًا" : "سيتم الحفظ تلقائيًا أثناء الكتابة"}</span>
+        {lastAutoSavedAt && <span>آخر حفظ: {new Date(lastAutoSavedAt).toLocaleTimeString("ar-LY", { hour: "2-digit", minute: "2-digit" })}</span>}
+      </div>
 
       {draftSaved && (
         <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-blue-700">
@@ -775,6 +811,7 @@ export default function NewOrder() {
         </div>
       )}
 
+      {currentStep === 1 && (
       <section id="customer-section" className="scroll-mt-28 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
         <button
           type="button"
@@ -816,12 +853,7 @@ export default function NewOrder() {
             <button
               type="button"
               disabled={!customerComplete}
-              onClick={() => {
-                setCustomerExpanded(false);
-                window.setTimeout(() => {
-                  document.getElementById("items-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
-                }, 100);
-              }}
+              onClick={() => { setCustomerExpanded(false); setCurrentStep(2); }}
               className="mt-4 w-full rounded-xl bg-emerald-700 px-5 py-3.5 font-black text-white disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-500"
             >
               حفظ بيانات العميل والمتابعة للمنتجات
@@ -830,6 +862,10 @@ export default function NewOrder() {
         )}
       </section>
 
+      )}
+
+      {currentStep === 2 && (
+      <>
       <section id="items-section" className="scroll-mt-28 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
         <button
           type="button"
@@ -960,79 +996,33 @@ export default function NewOrder() {
               </tbody>
             </table>
           </div>
+      </section>
+      )}
+
+      <div className="flex justify-between gap-3">
+        <button type="button" onClick={() => setCurrentStep(1)} className="rounded-xl bg-gray-100 px-6 py-3 font-black">السابق</button>
+        <button type="button" onClick={() => setCurrentStep(3)} className="rounded-xl bg-emerald-700 px-6 py-3 font-black text-white">التالي: التوصيل</button>
+      </div>
+      </>
+      )}
+
+      {currentStep === 3 && (
+        <section className="rounded-2xl bg-white p-4 shadow-sm sm:p-6">
+          <PaymentSection value={payment} mode="delivery" onChange={(value) => { setPayment(value); setDraftSaved(false); }} />
+          <div className="mt-5 flex justify-between gap-3"><button type="button" onClick={() => setCurrentStep(2)} className="rounded-xl bg-gray-100 px-6 py-3 font-black">السابق</button><button type="button" onClick={() => setCurrentStep(4)} className="rounded-xl bg-emerald-700 px-6 py-3 font-black text-white">التالي: الدفع</button></div>
         </section>
       )}
 
-      <section id="payment-section" className="scroll-mt-28 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-        <button
-          type="button"
-          onClick={() => setPaymentExpanded((current) => !current)}
-          className="flex w-full items-center justify-between gap-3 p-4 text-right sm:p-5"
-        >
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xl">💳</span>
-              <h2 className="text-lg font-black text-gray-900 sm:text-xl">الدفع والتوصيل</h2>
-              {paymentComplete && (
-                <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-black text-emerald-700">مراجعة جاهزة ✓</span>
-              )}
-            </div>
-            {!paymentExpanded && (
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-gray-600">
-                <span>الإجمالي: <strong className="text-gray-900">{finalTotal.toFixed(2)} د.ل</strong></span>
-                <span className="text-gray-300">•</span>
-                <span>المدفوع: <strong className="text-emerald-700">{totalPaid.toFixed(2)} د.ل</strong></span>
-                <span className="text-gray-300">•</span>
-                <span>المتبقي: <strong className={finalTotal - totalPaid > 0 ? "text-amber-700" : "text-emerald-700"}>{Math.max(0, finalTotal - totalPaid).toFixed(2)} د.ل</strong></span>
-              </div>
-            )}
-          </div>
-          <span className="shrink-0 rounded-xl bg-gray-100 px-3 py-2 text-sm font-black text-gray-700">
-            {paymentExpanded ? "طي القسم ▲" : "فتح وتعديل ▼"}
-          </span>
-        </button>
+      {currentStep === 4 && (
+        <section className="rounded-2xl bg-white p-4 shadow-sm sm:p-6">
+          <PaymentSection value={payment} mode="payment" onChange={(value) => { setPayment(value); setDraftSaved(false); }} />
+          <div className="mt-5 flex justify-between gap-3"><button type="button" onClick={() => setCurrentStep(3)} className="rounded-xl bg-gray-100 px-6 py-3 font-black">السابق</button><button type="button" onClick={() => setCurrentStep(5)} className="rounded-xl bg-emerald-700 px-6 py-3 font-black text-white">التالي: المراجعة</button></div>
+        </section>
+      )}
 
-        {paymentExpanded && (
-          <div className="border-t border-gray-100 p-3 sm:p-5">
-            <PaymentSection
-              value={payment}
-              onChange={(value) => {
-                setPayment(value);
-                setDraftSaved(false);
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => {
-                setPaymentExpanded(false);
-                window.setTimeout(() => {
-                  document.getElementById("save-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
-                }, 100);
-              }}
-              className="mt-4 w-full rounded-xl bg-emerald-700 px-5 py-3.5 font-black text-white"
-            >
-              مراجعة الطلب والمتابعة للحفظ
-            </button>
-          </div>
-        )}
-      </section>
-
-      <section className="rounded-2xl bg-white p-6 shadow">
-        <h2 className="mb-5 text-2xl font-bold">ملخص محتويات الطلب</h2>
-
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
-          <SummaryCard label="عدد الباقات" value={totals.bouquets} />
-          <SummaryCard label="عدد البوكسات" value={totals.boxes} />
-          <SummaryCard label="منتجات فردية" value={totals.singles} />
-          <SummaryCard label="ورد طبيعي" value={totals.bouquetFlowers} />
-          <SummaryCard label="محتوى خارجي" value={totals.externalContents} />
-          <SummaryCard
-            label="إجمالي المنتجات"
-            value={`${productsTotal.toFixed(2)} د.ل`}
-          />
-        </div>
-      </section>
-
+      {currentStep === 5 && (
+        <div>
+      <div className="mb-4 flex items-center justify-between gap-3"><button type="button" onClick={() => setCurrentStep(4)} className="rounded-xl bg-gray-100 px-5 py-3 font-black">السابق</button><span className="text-sm font-bold text-gray-500">راجع الطلب ثم احفظه</span></div>
       <div id="save-section" className="scroll-mt-28 rounded-3xl border-2 border-emerald-100 bg-white p-6 shadow-lg">
         <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-center">
           <div>
@@ -1097,6 +1087,9 @@ export default function NewOrder() {
           </div>
         </div>
       </div>
+
+        </div>
+      )}
 
       {openEntryId && (() => {
         const selectedEntry = entries.find((entry) => entry.data.tempId === openEntryId);
@@ -1659,47 +1652,6 @@ function SingleProductEditor({
         >
           حذف المنتج من الطلب
         </button>
-      </div>
-    </div>
-  );
-}
-
-function ProgressBar({
-  customerComplete,
-  itemsComplete,
-  paymentComplete,
-  reviewComplete,
-}: {
-  customerComplete: boolean;
-  itemsComplete: boolean;
-  paymentComplete: boolean;
-  reviewComplete: boolean;
-}) {
-  const steps = [
-    { label: "بيانات العميل", complete: customerComplete },
-    { label: "محتويات الطلب", complete: itemsComplete },
-    { label: "الدفع", complete: paymentComplete },
-    { label: "المراجعة", complete: reviewComplete },
-  ];
-
-  return (
-    <div className="rounded-2xl bg-white p-5 shadow">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        {steps.map((step, index) => (
-          <div
-            key={step.label}
-            className={`rounded-xl border p-3 text-center ${
-              step.complete
-                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                : "border-gray-200 bg-gray-50 text-gray-500"
-            }`}
-          >
-            <div className="text-lg font-bold">
-              {step.complete ? "✓" : index + 1}
-            </div>
-            <div className="mt-1 text-sm font-semibold">{step.label}</div>
-          </div>
-        ))}
       </div>
     </div>
   );
@@ -2330,21 +2282,6 @@ function escapeHtml(value: unknown) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
-}
-
-function SummaryCard({
-  label,
-  value,
-}: {
-  label: string;
-  value: string | number;
-}) {
-  return (
-    <div className="rounded-xl bg-gray-50 p-4 text-center">
-      <p className="text-sm text-gray-500">{label}</p>
-      <p className="mt-2 text-2xl font-bold">{value}</p>
-    </div>
-  );
 }
 
 function getErrorMessage(error: unknown) {

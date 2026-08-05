@@ -44,9 +44,10 @@ export type PaymentData = {
 type Props = {
   value: PaymentData;
   onChange: (value: PaymentData) => void;
+  mode?: "all" | "payment" | "delivery";
 };
 
-export default function PaymentSection({ value, onChange }: Props) {
+export default function PaymentSection({ value, onChange, mode = "all" }: Props) {
   const { effectiveBranchId } = useBranch();
   const [driverNames, setDriverNames] = useState<string[]>([]);
 
@@ -165,6 +166,8 @@ export default function PaymentSection({ value, onChange }: Props) {
       <h2 className="mb-5 text-2xl font-bold">الدفع والتوصيل</h2>
 
       <div className="space-y-6">
+        {(mode === "all" || mode === "payment") && (
+          <>
         <section>
           <label className="mb-2 block font-semibold">
             طريقة دفع الطلب
@@ -290,8 +293,12 @@ export default function PaymentSection({ value, onChange }: Props) {
           </p>
         </div>
 
-        <hr />
+          </>
+        )}
 
+        {(mode === "all" || mode === "delivery") && (
+          <>
+            {mode === "all" && <hr />}
         <section>
           <div className="mb-4">
             <h3 className="text-xl font-bold">التوصيل</h3>
@@ -397,6 +404,8 @@ export default function PaymentSection({ value, onChange }: Props) {
             </p>
           )}
         </section>
+          </>
+        )}
       </div>
     </div>
   );

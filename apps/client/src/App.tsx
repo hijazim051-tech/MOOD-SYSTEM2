@@ -705,7 +705,7 @@ function BranchHeader({
           </div>
         </div>
 
-        <div className="hidden items-center gap-2 md:flex"><PwaControls /><BranchSelector /></div>
+        <div className="flex items-center gap-2"><div className="hidden sm:block"><PwaControls /></div><div className="max-w-[155px] sm:max-w-none"><BranchSelector /></div></div>
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
