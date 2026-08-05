@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase";
+import { useBranch } from "../../context/BranchContext";
 
 type CustomerSuggestion = {
   customerName: string;
@@ -27,6 +28,7 @@ type Props = {
 };
 
 export default function CustomerInfo({ value, onChange }: Props) {
+  const { effectiveBranchId } = useBranch();
   const [suggestions, setSuggestions] = useState<CustomerSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
@@ -48,12 +50,14 @@ export default function CustomerInfo({ value, onChange }: Props) {
     const timer = window.setTimeout(async () => {
       setLoadingSuggestions(true);
       try {
-        const { data, error } = await supabase
+        let query = supabase
           .from("orders")
-          .select("customer_name,customer_phone,recipient_phone,occasion,delivery_address,notes,created_at")
+          .select("customer_name,customer_phone,recipient_phone,occasion,delivery_address,notes,created_at,branch_id")
           .ilike("customer_name", `%${normalizedName}%`)
           .order("created_at", { ascending: false })
           .limit(30);
+        if (effectiveBranchId) query = query.eq("branch_id", effectiveBranchId);
+        const { data, error } = await query;
 
         if (error) throw error;
         if (requestId !== requestIdRef.current) return;
@@ -88,7 +92,7 @@ export default function CustomerInfo({ value, onChange }: Props) {
     }, 220);
 
     return () => window.clearTimeout(timer);
-  }, [normalizedName]);
+  }, [normalizedName, effectiveBranchId]);
 
   function selectCustomer(customer: CustomerSuggestion) {
     onChange({

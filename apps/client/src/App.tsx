@@ -32,6 +32,7 @@ import ActivityLogPage from "./pages/ActivityLog";
 import PackagingEmployee from "./pages/PackagingEmployee";
 import ReadyProducts from "./pages/ReadyProducts";
 import Offers from "./pages/Offers";
+import OfferCreate from "./pages/OfferCreate";
 import PwaControls from "./components/PwaControls";
 import Tasks from "./pages/Tasks";
 import TaskCreate from "./pages/TaskCreate";
@@ -82,6 +83,15 @@ function App() {
   const notifiedIdsRef = useRef<Set<string>>(new Set());
   const notificationsInitializedRef = useRef(false);
 
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const custom = event as CustomEvent<{ page?: string }>;
+      if (custom.detail?.page) setPage(custom.detail.page);
+    };
+    window.addEventListener("mood:navigate", handler);
+    return () => window.removeEventListener("mood:navigate", handler);
+  }, []);
   useEffect(() => {
     void checkUser();
   }, []);
@@ -532,6 +542,7 @@ function App() {
         {page === "packaging" && <PackagingEmployee />}
         {page === "ready-products" && <ReadyProducts />}
         {page === "offers" && <Offers />}
+        {page === "offer-create" && <OfferCreate />}
         {page === "waste" && <Waste />}
         {page === "expenses" && <Expenses />}
         {page === "tasks" && <Tasks />}

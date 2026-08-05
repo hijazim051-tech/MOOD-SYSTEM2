@@ -467,7 +467,6 @@ export default function NewOrder() {
     Boolean(customer.customerName.trim()) &&
     Boolean(customer.customerPhone.trim());
   const itemsComplete = entries.length > 0;
-  
   function validateOrder() {
     const errors: string[] = [];
 

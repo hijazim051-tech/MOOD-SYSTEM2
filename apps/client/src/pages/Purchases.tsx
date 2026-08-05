@@ -1053,6 +1053,7 @@ export default function Purchases() {
 
       {showSupplierDialog && (
         <NewSupplierDialog
+          branchId={effectiveBranchId}
           onClose={() => setShowSupplierDialog(false)}
           onSaved={async (supplier) => {
             setShowSupplierDialog(false);
@@ -1067,9 +1068,11 @@ export default function Purchases() {
 }
 
 function NewSupplierDialog({
+  branchId,
   onClose,
   onSaved,
 }: {
+  branchId: string | null;
   onClose: () => void;
   onSaved: (supplier: { id: string; name: string }) => void;
 }) {
@@ -1082,6 +1085,11 @@ function NewSupplierDialog({
   const [saving, setSaving] = useState(false);
 
   async function saveSupplier() {
+    if (!branchId) {
+      alert("اختر فرعًا محددًا أولًا");
+      return;
+    }
+
     if (!name.trim()) {
       alert("اسم المورد مطلوب");
       return;
@@ -1099,6 +1107,8 @@ function NewSupplierDialog({
           address: address.trim(),
           supplier_type: supplierType.trim() || "عام",
           notes: notes.trim(),
+          branch_id: branchId,
+          is_active: true,
         })
         .select("id,name")
         .single();
