@@ -844,8 +844,8 @@ export default function PackagingEmployee() {
         />
       </section>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[420px_1fr]">
-        <section className="rounded-2xl bg-white p-5 shadow">
+      <div className="space-y-6">
+        {!selectedOrder && <section className="rounded-2xl bg-white p-5 shadow">
           <h2 className="mb-4 text-xl font-bold">الطلبات</h2>
 
           <div className="max-h-[720px] space-y-3 overflow-y-auto">
@@ -886,34 +886,11 @@ export default function PackagingEmployee() {
                   </p>
 
                   {pendingCount > 0 && (
-                      <div className="mt-3 space-y-2">
-                        {order.items
-                          .filter(
-                            (item) => item.packagingStatus !== "completed",
-                          )
-                          .map((item) => (
-                            <button
-                              key={item.id}
-                              type="button"
-                              onClick={() => openItem(order, item)}
-                              className={`block w-full rounded-lg p-3 text-right transition ${
-                                selectedItemId === item.id
-                                  ? "bg-emerald-700 text-white"
-                                  : "bg-gray-50 hover:bg-emerald-50"
-                              }`}
-                            >
-                              <p className="font-semibold">{item.title}</p>
-                              <p className="mt-1 text-sm opacity-80">
-                                {item.contentValue > 0
-                                  ? `قيمة المحتوى: ${item.contentValue.toFixed(
-                                      2,
-                                    )} د.ل`
-                                  : "تأكيد تجهيز البند"}
-                              </p>
-                            </button>
-                          ))}
-                      </div>
-                    )}
+                    <button type="button" onClick={() => {
+                      const firstPending = order.items.find((item) => item.packagingStatus !== "completed");
+                      if (firstPending) openItem(order, firstPending);
+                    }} className="mt-3 w-full rounded-xl bg-emerald-700 px-4 py-3 font-bold text-white">فتح الطلب وإنجازه</button>
+                  )}
                 </div>
               );
             })}
@@ -924,10 +901,11 @@ export default function PackagingEmployee() {
               </div>
             )}
           </div>
-        </section>
+        </section>}
 
-        <section className="rounded-2xl bg-white p-5 shadow md:p-6">
-          {!selectedOrder || !selectedItem ? (
+        {selectedOrder && selectedItem && <section className="rounded-2xl bg-white p-5 shadow md:p-6">
+          <button type="button" onClick={() => { setSelectedOrderId(null); setSelectedItemId(null); }} className="mb-5 rounded-xl bg-gray-100 px-4 py-3 font-bold text-gray-700">← رجوع إلى قائمة الطلبات</button>
+          {(!selectedOrder || !selectedItem) ? (
             <div className="flex min-h-[420px] items-center justify-center text-center text-gray-500">
               اختار طلبًا وبندًا من القائمة لبدء التجهيز
             </div>
@@ -965,6 +943,30 @@ export default function PackagingEmployee() {
                     <p className="mt-1 font-semibold">{selectedOrder.notes}</p>
                   </div>
                 )}
+              </div>
+
+              <div className="mt-5 rounded-2xl border p-4">
+                <p className="mb-3 font-bold">بنود الطلب</p>
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {selectedOrder.items.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      disabled={item.packagingStatus === "completed"}
+                      onClick={() => openItem(selectedOrder, item)}
+                      className={`rounded-xl border p-3 text-right font-semibold ${
+                        selectedItem.id === item.id
+                          ? "border-emerald-600 bg-emerald-50 text-emerald-800"
+                          : item.packagingStatus === "completed"
+                            ? "border-green-200 bg-green-50 text-green-700 opacity-70"
+                            : "border-gray-200 bg-white hover:bg-gray-50"
+                      }`}
+                    >
+                      <span className="block">{item.title}</span>
+                      <span className="mt-1 block text-xs">{item.packagingStatus === "completed" ? "✓ تم التجهيز" : "اضغط للتجهيز"}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="mt-5 rounded-2xl border border-emerald-100 bg-emerald-50 p-5">
@@ -1294,7 +1296,7 @@ export default function PackagingEmployee() {
               </button>
             </>
           )}
-        </section>
+        </section>}
       </div>
 
       <section className="rounded-2xl bg-white p-5 shadow md:p-6">

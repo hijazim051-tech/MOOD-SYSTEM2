@@ -508,7 +508,7 @@ function App() {
         allowedPages={allowedPages}
       />
 
-      <main className="min-w-0 flex-1 overflow-x-hidden">
+      <main className="h-screen min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
         <BranchHeader
           setMobileMenuOpen={setMobileMenuOpen}
           notificationsRef={notificationsRef}
@@ -528,10 +528,10 @@ function App() {
         {page === "dashboard" && <Dashboard />}
         {page === "pos" && <POS setPage={setPage} />}
         {page === "orders" && (
-          <Orders
-            setPage={setPage}
-            userRole={userRole}
-          />
+          <Orders setPage={setPage} userRole={userRole} viewMode="shop" />
+        )}
+        {page === "driver-orders" && (
+          <Orders setPage={setPage} userRole={userRole} viewMode="drivers" />
         )}
         {page === "new-order" && <NewOrder />}
         {page === "items" && <Items />}
@@ -665,7 +665,7 @@ function BranchHeader({
 
   return (
     <div
-      className="sticky top-0 z-[9990] flex items-center justify-between gap-2 border-b bg-white p-2 shadow sm:p-3"
+      className="sticky top-0 z-[9990] flex items-center justify-between gap-2 border-b bg-white/95 p-2 shadow backdrop-blur sm:p-3"
       style={{
         borderColor:
           "color-mix(in srgb, var(--branch-primary) 18%, transparent)",

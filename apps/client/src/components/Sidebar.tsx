@@ -21,7 +21,8 @@ const items: MenuItem[] = [
   { key: "dashboard", label: "🏠 لوحة التحكم" },
   { key: "tasks", label: "✅ المهام" },
   { key: "task-create", label: "➕ إضافة مهمة", roles: ["owner", "admin", "manager"] },
-  { key: "orders", label: "📋 الطلبات" },
+  { key: "orders", label: "📋 طلبات المحل" },
+  { key: "driver-orders", label: "🛵 طلبات المندوبين" },
   { key: "new-order", label: "➕ طلب جديد" },
   { key: "ready-products", label: "📦 الجاهزات" },
   { key: "offer-create", label: "➕ إضافة عرض" },
@@ -184,7 +185,7 @@ export default function Sidebar({
             {items
               .filter((item) =>
                 (!item.roles || item.roles.includes(normalizedRole)) &&
-                (allowedPages === null || allowedPages.has(item.key))
+                (allowedPages === null || allowedPages.has(item.key) || (item.key === "driver-orders" && allowedPages.has("orders")))
               )
               .map((item) => {
                 const active = page === item.key;

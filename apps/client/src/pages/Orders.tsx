@@ -75,6 +75,7 @@ type Order = PrintOrder & {
 type Props = {
   setPage?: (page: string) => void;
   userRole?: string;
+  viewMode?: "shop" | "drivers";
 };
 
 type DriverForm = {
@@ -129,6 +130,7 @@ const inputClass =
 export default function Orders({
   setPage,
   userRole = "employee",
+  viewMode = "shop",
 }: Props) {
   const { effectiveBranchId } = useBranch();
   const [orders, setOrders] = useState<Order[]>([]);
@@ -359,6 +361,8 @@ export default function Orders({
     const keyword = search.trim().toLowerCase();
 
     return orders.filter((order) => {
+      if (viewMode === "shop" && order.status === "out_for_delivery") return false;
+      if (viewMode === "drivers" && order.status !== "out_for_delivery") return false;
       const searchableText = [
         order.orderNumber,
         order.customerName,
@@ -378,19 +382,22 @@ export default function Orders({
 
       return matchesSearch && matchesDate && matchesStatus;
     });
-  }, [orders, search, dateFilter, statusFilter]);
+  }, [orders, search, dateFilter, statusFilter, viewMode]);
 
-  const statistics = useMemo(
-    () => ({
-      total: orders.length,
-      packaging: orders.filter((order) => order.status === "packaging").length,
-      ready: orders.filter((order) => order.status === "ready").length,
-      delivery: orders.filter((order) => order.status === "out_for_delivery")
-        .length,
-      delivered: orders.filter((order) => order.status === "delivered").length,
-    }),
-    [orders]
-  );
+  const statistics = useMemo(() => {
+    const scopedOrders = orders.filter((order) =>
+      viewMode === "drivers"
+        ? order.status === "out_for_delivery"
+        : order.status !== "out_for_delivery"
+    );
+    return {
+      total: scopedOrders.length,
+      packaging: scopedOrders.filter((order) => order.status === "packaging").length,
+      ready: scopedOrders.filter((order) => order.status === "ready").length,
+      delivery: scopedOrders.filter((order) => order.status === "out_for_delivery").length,
+      delivered: scopedOrders.filter((order) => order.status === "delivered").length,
+    };
+  }, [orders, viewMode]);
 
   const driverSummaries = useMemo<DriverSummary[]>(() => {
     const map = new Map<string, DriverSummary>();
@@ -894,9 +901,9 @@ export default function Orders({
     <div className="space-y-6 p-4 md:p-8" dir="rtl">
       <header className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
         <div>
-          <h1 className="text-3xl font-bold md:text-4xl">الطلبات</h1>
+          <h1 className="text-3xl font-bold md:text-4xl">{viewMode === "drivers" ? "طلبات المندوبين" : "طلبات المحل"}</h1>
           <p className="mt-1 text-gray-500">
-            التغليف، التسليم، التوصيل وتسوية أموال المندوبين
+            {viewMode === "drivers" ? "الطلبات الخارجة للتوصيل وتسوية أموال المندوبين" : "الطلبات الموجودة داخل المحل حتى تسليمها للمندوب أو العميل"}
           </p>
         </div>
 
@@ -917,6 +924,7 @@ export default function Orders({
         <StatCard label="تم التسليم" value={statistics.delivered} className="text-green-700" />
       </section>
 
+      {viewMode === "drivers" && (
       <section className="rounded-2xl border-2 border-amber-200 bg-amber-50 p-5 shadow-sm">
         <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
           <div>
@@ -986,9 +994,11 @@ export default function Orders({
         )}
       </section>
 
+      )}
+
       <section className="rounded-2xl bg-white p-5 shadow">
         <div className="mb-4 flex flex-wrap gap-2">
-          {statusTabs.map((tab) => (
+          {statusTabs.filter((tab) => viewMode === "drivers" ? ["all", "out_for_delivery"].includes(tab.value) : tab.value !== "out_for_delivery").map((tab) => (
             <button
               key={tab.value}
               type="button"

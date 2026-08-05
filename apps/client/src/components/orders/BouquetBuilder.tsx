@@ -49,6 +49,7 @@ export type ExternalPurchaseLine = {
 };
 
 export type BouquetDraft = {
+  wrappingMode?: "" | "with" | "without";
   tempId: string;
   title: string;
   bouquetSizeId: string | null;
@@ -99,6 +100,7 @@ export function createEmptyBouquet(): BouquetDraft {
     bouquetSizeName: "",
     bouquetSizePrice: 0,
     flowers: [],
+    wrappingMode: "",
     wrappingOptions: [],
     externalPurchases: [],
     notes: "",
@@ -534,8 +536,18 @@ export default function BouquetBuilder({
       </section>
 
       <section className="mb-6 rounded-2xl border p-5">
+        <div className="mb-5">
+          <h3 className="text-xl font-bold">هل الباقة بغلاف؟ *</h3>
+          <p className="mt-1 text-sm text-gray-500">هذا الاختيار إجباري قبل اختيار لون الغلاف.</p>
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <button type="button" onClick={() => onChange({ ...bouquet, wrappingMode: "with" })} className={`rounded-xl border-2 p-4 font-bold ${bouquet.wrappingMode === "with" ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-gray-200"}`}>بغلاف</button>
+            <button type="button" onClick={() => onChange({ ...bouquet, wrappingMode: "without", wrappingOptions: [] })} className={`rounded-xl border-2 p-4 font-bold ${bouquet.wrappingMode === "without" ? "border-blue-600 bg-blue-50 text-blue-800" : "border-gray-200"}`}>بدون غلاف</button>
+          </div>
+        </div>
+
+        {bouquet.wrappingMode === "with" && <>
         <div className="mb-4">
-          <h3 className="text-xl font-bold">ألوان الغلاف (اختياري)</h3>
+          <h3 className="text-xl font-bold">ألوان الغلاف</h3>
           <p className="mt-1 text-sm text-gray-500">
             اختار لونًا واحدًا أو أكثر فقط. موظف التغليف سيكتب عدد الأوراق
             المستخدمة فعليًا من كل لون.
@@ -580,10 +592,11 @@ export default function BouquetBuilder({
         )}
 
         {bouquet.wrappingOptions.length === 0 && (
-          <p className="mt-4 rounded-xl bg-blue-50 p-3 text-sm text-blue-700">
-            لم يتم اختيار غلاف؛ سيتم حفظ الباقة كـ «بدون غلاف».
-          </p>
+          <p className="mt-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-700">اختر لون غلاف واحدًا على الأقل.</p>
         )}
+        </>}
+        {!bouquet.wrappingMode && <p className="rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-700">يجب اختيار «بغلاف» أو «بدون غلاف».</p>}
+        {bouquet.wrappingMode === "without" && <p className="rounded-xl bg-blue-50 p-3 text-sm text-blue-700">سيتم حفظ الباقة بدون غلاف.</p>}
       </section>
 
       <section className="mb-6 rounded-2xl border p-5">

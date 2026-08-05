@@ -641,9 +641,11 @@ export default function Purchases() {
             <select
               value={purchaseMode}
               onChange={(event) =>
-                setPurchaseMode(
-                  event.target.value as "cash" | "credit" | "mixed"
-                )
+                (() => {
+                  const nextMode = event.target.value as "cash" | "credit" | "mixed";
+                  setPurchaseMode(nextMode);
+                  if (nextMode === "mixed" && !["cash", "bank_transfer"].includes(paymentMethod)) setPaymentMethod("cash");
+                })()
               }
               className={inputClass}
             >
@@ -918,16 +920,15 @@ export default function Purchases() {
             />
           </Field>
 
-          <Field label="طريقة الدفع">
+          <Field label={purchaseMode === "mixed" ? "طريقة دفع الجزء المدفوع" : "طريقة الدفع"}>
             <select
               value={paymentMethod}
               onChange={(event) => setPaymentMethod(event.target.value)}
               className={inputClass}
             >
-              <option value="cash">نقدًا</option>
-              <option value="card">بطاقة</option>
-              <option value="bank_transfer">تحويل مصرفي</option>
-              <option value="mixed">مختلط</option>
+              <option value="cash">كاش</option>
+              <option value="bank_transfer">مصرف</option>
+              {purchaseMode !== "mixed" && <option value="card">بطاقة</option>}
             </select>
           </Field>
 

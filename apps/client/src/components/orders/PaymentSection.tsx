@@ -1,6 +1,4 @@
-import { useEffect, useState } from "react";
-import { supabase } from "../../lib/supabase";
-import { useBranch } from "../../context/BranchContext";
+
 export type PaymentData = {
   paymentMethod: "cash" | "bank" | "transfer" | "deposit" | "mixed";
 
@@ -48,20 +46,6 @@ type Props = {
 };
 
 export default function PaymentSection({ value, onChange, mode = "all" }: Props) {
-  const { effectiveBranchId } = useBranch();
-  const [driverNames, setDriverNames] = useState<string[]>([]);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function loadDrivers() {
-      let query = supabase.from("delivery_drivers").select("name").eq("is_active", true).order("name");
-      if (effectiveBranchId) query = query.eq("branch_id", effectiveBranchId);
-      const { data } = await query;
-      if (!cancelled) setDriverNames((data || []).map((row: any) => String(row.name || "")).filter(Boolean));
-    }
-    void loadDrivers();
-    return () => { cancelled = true; };
-  }, [effectiveBranchId]);
   function update<K extends keyof PaymentData>(
     field: K,
     fieldValue: PaymentData[K]
@@ -81,7 +65,6 @@ export default function PaymentSection({ value, onChange, mode = "all" }: Props)
   const hasDelivery =
     value.deliveryPaymentMethod !== "none" ||
     Number(value.deliveryFee || 0) > 0 ||
-    Boolean(value.deliveryDriverName.trim()) ||
     Boolean(value.deliveryAddress.trim());
 
   function changePaymentMethod(
@@ -303,7 +286,7 @@ export default function PaymentSection({ value, onChange, mode = "all" }: Props)
           <div className="mb-4">
             <h3 className="text-xl font-bold">التوصيل</h3>
             <p className="mt-1 text-sm text-gray-500">
-              أدخل بيانات التوصيل فقط إذا كان الطلب يحتاج توصيلًا.
+              حدد هل الطلب يحتاج توصيلًا وهل قيمة التوصيل مدفوعة. بيانات المندوب تُدخل لاحقًا من صفحة الطلبات.
             </p>
           </div>
 
@@ -323,49 +306,32 @@ export default function PaymentSection({ value, onChange, mode = "all" }: Props)
               placeholder="قيمة التوصيل"
             />
 
-            <select
-              value={value.deliveryPaymentMethod}
-              onChange={(event) =>
-                changeDeliveryMethod(
-                  event.target
-                    .value as PaymentData["deliveryPaymentMethod"]
-                )
-              }
-              className="rounded-xl border p-3"
-            >
-              <option value="none">بدون توصيل</option>
+            <label className="space-y-2">
+              <span className="block text-sm font-bold text-gray-700">هل يوجد توصيل؟ *</span>
+              <select
+                value={value.deliveryPaymentMethod === "none" ? "no" : "yes"}
+                onChange={(event) => changeDeliveryMethod(event.target.value === "no" ? "none" : "customer_paid")}
+                className="w-full rounded-xl border p-3"
+              >
+                <option value="no">لا، بدون توصيل</option>
+                <option value="yes">نعم، يوجد توصيل</option>
+              </select>
+            </label>
 
-              <option value="cash">
-                المحل يدفع للكابتن كاش
-              </option>
+            <label className="space-y-2">
+              <span className="block text-sm font-bold text-gray-700">هل قيمة التوصيل خالصة؟ *</span>
+              <select
+                disabled={value.deliveryPaymentMethod === "none"}
+                value={value.deliveryPaymentMethod === "bank" ? "paid" : "not_paid"}
+                onChange={(event) => changeDeliveryMethod(event.target.value === "paid" ? "bank" : "customer_paid")}
+                className="w-full rounded-xl border p-3 disabled:bg-gray-100"
+              >
+                <option value="not_paid">لا، غير خالصة</option>
+                <option value="paid">نعم، خالصة</option>
+              </select>
+            </label>
 
-              <option value="bank">
-                الزبون دفع التوصيل للمحل
-              </option>
-
-              <option value="customer_paid">
-                الزبون يدفع للكابتن مباشرة
-              </option>
-            </select>
-
-            <div className="relative">
-            <input
-              list="mood-delivery-drivers"
-              value={value.deliveryDriverName}
-              onChange={(event) =>
-                update(
-                  "deliveryDriverName",
-                  event.target.value
-                )
-              }
-              disabled={value.deliveryPaymentMethod === "none"}
-              className="rounded-xl border p-3 disabled:bg-gray-100"
-              placeholder="اكتب أول حروف اسم الكابتن"
-            />
-            <datalist id="mood-delivery-drivers">
-              {driverNames.map((name) => <option key={name} value={name} />)}
-            </datalist>
-            </div>
+            <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">اسم ورقم المندوب يتم إدخالهما لاحقًا من صفحة الطلبات عند الضغط على «استلمه المندوب».</div>
 
             <input
               value={value.deliveryAddress}
@@ -378,23 +344,9 @@ export default function PaymentSection({ value, onChange, mode = "all" }: Props)
             />
           </div>
 
-          {value.deliveryPaymentMethod === "cash" && (
-            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-800">
-              <p className="font-bold">
-                قيمة التوصيل ستُسجل كمصروف كاش على المحل
-              </p>
-              <p className="mt-1 text-sm">
-                حتى لو دفع الزبون قيمة الطلب والتوصيل بالخدمات
-                المصرفية، سيُخصم مبلغ التوصيل محاسبيًا من كاش
-                المحل لأنه سيُدفع للكابتن نقدًا.
-              </p>
-            </div>
-          )}
-
-          {value.deliveryPaymentMethod === "customer_paid" && (
+          {value.deliveryPaymentMethod !== "none" && (
             <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4 text-blue-700">
-              الزبون سيدفع قيمة التوصيل للكابتن مباشرة، لذلك لا
-              تُسجل قيمة التوصيل كمصروف على المحل.
+              بيانات المندوب ورقمه تُضاف لاحقًا من صفحة الطلبات عند استلامه للطلب.
             </div>
           )}
 
