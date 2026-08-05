@@ -37,6 +37,8 @@ type ExpenseRecord = {
   expenseDate: string;
   categoryName: string;
   expenseType: string;
+  accountingType: "asset" | "operating" | "liability";
+  paidAmount: number;
   amount: number;
   paymentMethod: string;
 };
@@ -200,6 +202,8 @@ export default function Reports() {
             expense_date,
             category_name_snapshot,
             expense_type,
+            accounting_type,
+            paid_amount,
             amount,
             payment_method,
             branch_id
@@ -275,6 +279,8 @@ export default function Reports() {
             expense.category_name_snapshot || "مصروفات أخرى"
           ),
           expenseType: String(expense.expense_type || "variable"),
+          accountingType: String(expense.accounting_type || "operating") as ExpenseRecord["accountingType"],
+          paidAmount: Number(expense.paid_amount ?? expense.amount ?? 0),
           amount: Number(expense.amount || 0),
           paymentMethod: String(expense.payment_method || "cash"),
         }));
@@ -374,6 +380,12 @@ export default function Reports() {
     () => filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0),
     [filteredExpenses]
   );
+
+  const accountingSummary = useMemo(() => ({
+    assets: filteredExpenses.filter((x) => x.accountingType === "asset").reduce((s, x) => s + x.amount, 0),
+    operating: filteredExpenses.filter((x) => x.accountingType === "operating").reduce((s, x) => s + x.amount, 0),
+    liabilities: filteredExpenses.filter((x) => x.accountingType === "liability").reduce((s, x) => s + Math.max(x.amount - x.paidAmount, 0), 0),
+  }), [filteredExpenses]);
 
   const totalWaste = useMemo(
     () => filteredWaste.reduce((sum, record) => sum + record.totalCost, 0),
@@ -952,6 +964,12 @@ export default function Reports() {
           </div>
         </section>
       )}
+
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <StatCard label="الأصول المسجلة" value={money(accountingSummary.assets)} valueClass="text-blue-700" />
+        <StatCard label="المصروفات التشغيلية" value={money(accountingSummary.operating)} valueClass="text-red-700" />
+        <StatCard label="الالتزامات المتبقية" value={money(accountingSummary.liabilities)} valueClass="text-amber-700" />
+      </section>
 
       <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
         <StatCard label="إجمالي المبيعات" value={money(summary.sales)} valueClass="text-emerald-700" />

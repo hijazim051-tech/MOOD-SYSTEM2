@@ -132,6 +132,7 @@ export default function Orders({
 }: Props) {
   const { effectiveBranchId } = useBranch();
   const [orders, setOrders] = useState<Order[]>([]);
+  const [savedDrivers, setSavedDrivers] = useState<Array<{ name: string; phone: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [busyOrderId, setBusyOrderId] = useState<number | null>(null);
   const [deletingOrderId, setDeletingOrderId] = useState<number | null>(null);
@@ -160,17 +161,20 @@ export default function Orders({
   });
   const driverDirectory = useMemo(() => {
     const map = new Map<string, { name: string; phone: string }>();
+    for (const driver of savedDrivers) {
+      const name = driver.name.trim();
+      if (!name) continue;
+      map.set(name.toLowerCase(), { name, phone: driver.phone.trim() });
+    }
     for (const order of orders) {
       const name = order.deliveryDriverName.trim();
       const phone = order.deliveryDriverPhone.trim();
       if (!name) continue;
       const key = name.toLowerCase();
-      if (!map.has(key) || (!map.get(key)?.phone && phone)) {
-        map.set(key, { name, phone });
-      }
+      if (!map.has(key)) map.set(key, { name, phone });
     }
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, "ar"));
-  }, [orders]);
+  }, [orders, savedDrivers]);
 
   useEffect(() => {
     void loadOrders();
@@ -328,6 +332,22 @@ export default function Orders({
       }));
 
       setOrders(formattedOrders);
+
+      let driversQuery = supabase
+        .from("delivery_drivers")
+        .select("name,phone,is_active,branch_id")
+        .eq("is_active", true)
+        .order("name");
+      if (effectiveBranchId) driversQuery = driversQuery.eq("branch_id", effectiveBranchId);
+      const { data: driversData, error: driversError } = await driversQuery;
+      if (driversError) {
+        console.warn("تعذر تحميل المندوبين المحفوظين:", driversError.message);
+      } else {
+        setSavedDrivers((driversData || []).map((row: any) => ({
+          name: String(row.name || ""),
+          phone: String(row.phone || ""),
+        })));
+      }
     } catch (error: unknown) {
       alert(getErrorMessage(error));
     } finally {

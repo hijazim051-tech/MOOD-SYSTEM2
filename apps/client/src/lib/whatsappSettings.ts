@@ -121,7 +121,7 @@ export async function refreshWhatsAppSettings(
     const { data, error } = await supabase
       .from("branch_settings")
       .select(
-        "whatsapp_instance, whatsapp_token, whatsapp_settings, branches:branch_id(name)"
+        "whatsapp_instance, whatsapp_token, whatsapp_settings, whatsapp_ready_message, whatsapp_driver_message, whatsapp_delivered_message, branches:branch_id(name)"
       )
       .eq("branch_id", branchId)
       .maybeSingle();
@@ -130,8 +130,22 @@ export async function refreshWhatsAppSettings(
       throw error;
     }
 
-    const remote =
-      (data?.whatsapp_settings || {}) as Partial<WhatsAppSettings>;
+    const rawRemote =
+      (data?.whatsapp_settings || {}) as Record<string, unknown>;
+
+    // ندعم أسماء المفاتيح القديمة والجديدة، بالإضافة إلى أعمدة القوالب المباشرة.
+    const remote: Partial<WhatsAppSettings> = {
+      ...(rawRemote as Partial<WhatsAppSettings>),
+      askAfterSave: Boolean(rawRemote.askAfterSave ?? rawRemote.ask_after_save ?? true),
+      includeTotals: Boolean(rawRemote.includeTotals ?? rawRemote.include_totals ?? true),
+      sendReadyMessage: Boolean(rawRemote.sendReadyMessage ?? rawRemote.send_ready_message ?? true),
+      sendCustomerCollectedMessage: Boolean(rawRemote.sendCustomerCollectedMessage ?? rawRemote.send_customer_collected_message ?? true),
+      sendDriverHandoverMessage: Boolean(rawRemote.sendDriverHandoverMessage ?? rawRemote.send_driver_handover_message ?? true),
+      readyMessage: String(data?.whatsapp_ready_message || rawRemote.readyMessage || rawRemote.ready_message || DEFAULT_WHATSAPP_SETTINGS.readyMessage),
+      driverHandoverMessage: String(data?.whatsapp_driver_message || rawRemote.driverHandoverMessage || rawRemote.driver_handover_message || DEFAULT_WHATSAPP_SETTINGS.driverHandoverMessage),
+      customerCollectedMessage: String(data?.whatsapp_delivered_message || rawRemote.customerCollectedMessage || rawRemote.customer_collected_message || DEFAULT_WHATSAPP_SETTINGS.customerCollectedMessage),
+      invoiceMessage: String(rawRemote.invoiceMessage || rawRemote.invoice_message || DEFAULT_WHATSAPP_SETTINGS.invoiceMessage),
+    };
 
     const branches = (
       data as {
