@@ -34,6 +34,7 @@ export async function loadOrderForEdit(
       bank_amount,
       transfer_amount,
       deposit_amount,
+      deposit_method,
       delivery_fee,
       delivery_paid_cash,
       delivery_payment_method,
