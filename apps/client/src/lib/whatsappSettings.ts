@@ -62,40 +62,68 @@ function normalizeSettings(
   };
 }
 
+function booleanValue(value: unknown, fallback: boolean): boolean {
+  if (typeof value === "boolean") return value;
+  if (value === "true" || value === 1 || value === "1") return true;
+  if (value === "false" || value === 0 || value === "0") return false;
+  return fallback;
+}
+
+function firstText(...values: unknown[]): string {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
 function readLocal(branchId?: string | null): WhatsAppSettings {
   try {
     const direct = JSON.parse(
       localStorage.getItem(storageKey(branchId)) || "null"
     );
 
-    if (direct) {
-      return normalizeSettings(direct);
-    }
+    if (direct) return normalizeSettings(direct);
 
     const legacy = JSON.parse(
       localStorage.getItem("mood_whatsapp_settings") || "null"
     );
 
-    if (legacy) {
-      return normalizeSettings(legacy);
-    }
+    if (legacy) return normalizeSettings(legacy);
   } catch {
-    // تجاهل البيانات المحلية غير الصالحة
+    // تجاهل البيانات المحلية غير الصالحة.
   }
 
-  return {
-    ...DEFAULT_WHATSAPP_SETTINGS,
-  };
+  return { ...DEFAULT_WHATSAPP_SETTINGS };
 }
 
 function saveLocal(
   branchId: string | null | undefined,
   settings: WhatsAppSettings
 ) {
-  localStorage.setItem(
-    storageKey(branchId),
-    JSON.stringify(settings)
-  );
+  localStorage.setItem(storageKey(branchId), JSON.stringify(settings));
+}
+
+export function clearWhatsAppSettingsCache(
+  branchId?: string | null
+) {
+  if (branchId) {
+    cache.delete(key(branchId));
+    localStorage.removeItem(storageKey(branchId));
+    return;
+  }
+
+  cache.clear();
+
+  for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+    const itemKey = localStorage.key(index);
+    if (
+      itemKey === "mood_whatsapp_settings" ||
+      itemKey?.startsWith(`${STORAGE_PREFIX}:`)
+    ) {
+      localStorage.removeItem(itemKey);
+    }
+  }
 }
 
 export function loadWhatsAppSettings(
@@ -117,80 +145,101 @@ export async function refreshWhatsAppSettings(
     return loadWhatsAppSettings(null);
   }
 
-  try {
-    const { data, error } = await supabase
-      .from("branch_settings")
-      .select(
-        "whatsapp_instance, whatsapp_token, whatsapp_settings, whatsapp_ready_message, whatsapp_driver_message, whatsapp_delivered_message, branches:branch_id(name)"
-      )
-      .eq("branch_id", branchId)
-      .maybeSingle();
+  const { data, error } = await supabase
+    .from("branch_settings")
+    .select(
+      "branch_id, whatsapp_instance, whatsapp_token, whatsapp_settings, whatsapp_ready_message, whatsapp_driver_message, whatsapp_delivered_message"
+    )
+    .eq("branch_id", branchId)
+    .maybeSingle();
 
-    if (error) {
-      throw error;
-    }
-
-    const rawRemote =
-      (data?.whatsapp_settings || {}) as Record<string, unknown>;
-
-    // ندعم أسماء المفاتيح القديمة والجديدة، بالإضافة إلى أعمدة القوالب المباشرة.
-    const remote: Partial<WhatsAppSettings> = {
-      ...(rawRemote as Partial<WhatsAppSettings>),
-      askAfterSave: Boolean(rawRemote.askAfterSave ?? rawRemote.ask_after_save ?? true),
-      includeTotals: Boolean(rawRemote.includeTotals ?? rawRemote.include_totals ?? true),
-      sendReadyMessage: Boolean(rawRemote.sendReadyMessage ?? rawRemote.send_ready_message ?? true),
-      sendCustomerCollectedMessage: Boolean(rawRemote.sendCustomerCollectedMessage ?? rawRemote.send_customer_collected_message ?? true),
-      sendDriverHandoverMessage: Boolean(rawRemote.sendDriverHandoverMessage ?? rawRemote.send_driver_handover_message ?? true),
-      readyMessage: String(data?.whatsapp_ready_message || rawRemote.readyMessage || rawRemote.ready_message || DEFAULT_WHATSAPP_SETTINGS.readyMessage),
-      driverHandoverMessage: String(data?.whatsapp_driver_message || rawRemote.driverHandoverMessage || rawRemote.driver_handover_message || DEFAULT_WHATSAPP_SETTINGS.driverHandoverMessage),
-      customerCollectedMessage: String(data?.whatsapp_delivered_message || rawRemote.customerCollectedMessage || rawRemote.customer_collected_message || DEFAULT_WHATSAPP_SETTINGS.customerCollectedMessage),
-      invoiceMessage: String(rawRemote.invoiceMessage || rawRemote.invoice_message || DEFAULT_WHATSAPP_SETTINGS.invoiceMessage),
-    };
-
-    const branches = (
-      data as {
-        branches?:
-          | { name?: string | null }
-          | Array<{ name?: string | null }>
-          | null;
-      }
-    )?.branches;
-
-    const remoteBranchName = Array.isArray(branches)
-      ? branches[0]?.name
-      : branches?.name;
-
-    const settings = normalizeSettings({
-      ...remote,
-      instanceId: String(
-        data?.whatsapp_instance ||
-          remote.instanceId ||
-          ""
-      ),
-      token: String(
-        data?.whatsapp_token ||
-          remote.token ||
-          ""
-      ),
-      branchName: String(
-        remoteBranchName ||
-          remote.branchName ||
-          "المحل"
-      ),
-    });
-
-    cache.set(key(branchId), settings);
-    saveLocal(branchId, settings);
-
-    return settings;
-  } catch (error) {
-    console.warn(
-      "تعذر تحميل إعدادات واتساب الخاصة بالفرع، تم استخدام النسخة المحلية:",
-      error
+  if (error) {
+    throw new Error(
+      `تعذر تحميل إعدادات واتساب للفرع: ${error.message}`
     );
-
-    return loadWhatsAppSettings(branchId);
   }
+
+  if (!data) {
+    throw new Error("لا توجد إعدادات واتساب محفوظة لهذا الفرع");
+  }
+
+  const rawRemote =
+    (data.whatsapp_settings || {}) as Record<string, unknown>;
+
+  const { data: branchData, error: branchError } = await supabase
+    .from("branches")
+    .select("name")
+    .eq("id", branchId)
+    .maybeSingle();
+
+  if (branchError) {
+    console.warn("تعذر تحميل اسم الفرع:", branchError);
+  }
+
+  const settings = normalizeSettings({
+    askAfterSave: booleanValue(
+      rawRemote.askAfterSave ?? rawRemote.ask_after_save,
+      true
+    ),
+    includeTotals: booleanValue(
+      rawRemote.includeTotals ?? rawRemote.include_totals,
+      true
+    ),
+    sendReadyMessage: booleanValue(
+      rawRemote.sendReadyMessage ?? rawRemote.send_ready_message,
+      true
+    ),
+    sendCustomerCollectedMessage: booleanValue(
+      rawRemote.sendCustomerCollectedMessage ??
+        rawRemote.send_customer_collected_message,
+      true
+    ),
+    sendDriverHandoverMessage: booleanValue(
+      rawRemote.sendDriverHandoverMessage ??
+        rawRemote.send_driver_handover_message,
+      true
+    ),
+    readyMessage: firstText(
+      data.whatsapp_ready_message,
+      rawRemote.readyMessage,
+      rawRemote.ready_message,
+      DEFAULT_WHATSAPP_SETTINGS.readyMessage
+    ),
+    driverHandoverMessage: firstText(
+      data.whatsapp_driver_message,
+      rawRemote.driverHandoverMessage,
+      rawRemote.driver_handover_message,
+      DEFAULT_WHATSAPP_SETTINGS.driverHandoverMessage
+    ),
+    customerCollectedMessage: firstText(
+      data.whatsapp_delivered_message,
+      rawRemote.customerCollectedMessage,
+      rawRemote.customer_collected_message,
+      DEFAULT_WHATSAPP_SETTINGS.customerCollectedMessage
+    ),
+    invoiceMessage: firstText(
+      rawRemote.invoiceMessage,
+      rawRemote.invoice_message,
+      DEFAULT_WHATSAPP_SETTINGS.invoiceMessage
+    ),
+    instanceId: firstText(
+      data.whatsapp_instance,
+      rawRemote.instanceId,
+      rawRemote.instance_id
+    ),
+    token: firstText(data.whatsapp_token, rawRemote.token),
+    branchName: firstText(
+      branchData?.name,
+      rawRemote.branchName,
+      rawRemote.branch_name,
+      "المحل"
+    ),
+  });
+
+  cache.set(key(branchId), settings);
+  saveLocal(branchId, settings);
+
+  return settings;
 }
 
 export async function saveWhatsAppSettings(
@@ -198,18 +247,11 @@ export async function saveWhatsAppSettings(
   settings: WhatsAppSettings
 ): Promise<void> {
   if (!branchId) {
-    throw new Error(
-      "اختر فرعًا محددًا لحفظ إعدادات واتساب"
-    );
+    throw new Error("اختر فرعًا محددًا لحفظ إعدادات واتساب");
   }
 
   const normalized = normalizeSettings(settings);
-
-  const {
-    instanceId,
-    token,
-    ...publicSettings
-  } = normalized;
+  const { instanceId, token, ...publicSettings } = normalized;
 
   const { error } = await supabase
     .from("branch_settings")
@@ -218,17 +260,18 @@ export async function saveWhatsAppSettings(
         branch_id: branchId,
         whatsapp_instance: instanceId.trim(),
         whatsapp_token: token.trim(),
+        whatsapp_ready_message: normalized.readyMessage.trim(),
+        whatsapp_driver_message:
+          normalized.driverHandoverMessage.trim(),
+        whatsapp_delivered_message:
+          normalized.customerCollectedMessage.trim(),
         whatsapp_settings: publicSettings,
         updated_at: new Date().toISOString(),
       },
-      {
-        onConflict: "branch_id",
-      }
+      { onConflict: "branch_id" }
     );
 
-  if (error) {
-    throw error;
-  }
+  if (error) throw error;
 
   cache.set(key(branchId), normalized);
   saveLocal(branchId, normalized);

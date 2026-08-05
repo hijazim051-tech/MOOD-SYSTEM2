@@ -1,0 +1,97 @@
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+};
+
+function jsonResponse(data: unknown, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "application/json; charset=utf-8",
+    },
+  });
+}
+
+function cleanBaseUrl(value: string) {
+  return String(value || "").trim().replace(/\/+$/, "");
+}
+
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", {
+      status: 200,
+      headers: corsHeaders,
+    });
+  }
+
+  try {
+    const evolutionApiUrl = cleanBaseUrl(
+      Deno.env.get("EVOLUTION_API_URL") || ""
+    );
+
+    const apiKey = String(
+      Deno.env.get("EVOLUTION_API_KEY") || ""
+    ).trim();
+
+    if (!evolutionApiUrl || !apiKey) {
+      return jsonResponse(
+        {
+          ok: false,
+          error: "إعدادات Evolution غير موجودة",
+        },
+        500
+      );
+    }
+
+    const endpoint =
+      `${evolutionApiUrl}/instance/connect/alpha`;
+
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: {
+        apikey: apiKey,
+      },
+    });
+
+    const text = await response.text();
+
+    let result: unknown = text;
+
+    try {
+      result = JSON.parse(text);
+    } catch {
+      // نحتفظ بالنتيجة كنص.
+    }
+
+    if (!response.ok) {
+      return jsonResponse(
+        {
+          ok: false,
+          status: response.status,
+          details: result,
+        },
+        502
+      );
+    }
+
+    return jsonResponse({
+      ok: true,
+      instance: "alpha",
+      result,
+    });
+  } catch (error) {
+    return jsonResponse(
+      {
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Unexpected error",
+      },
+      500
+    );
+  }
+});

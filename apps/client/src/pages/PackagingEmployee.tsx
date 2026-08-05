@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useBranch } from "../context/BranchContext";
 import { sendAutomaticWhatsApp } from "../lib/whatsapp";
-import { loadWhatsAppSettings } from "../lib/whatsappSettings";
+import { refreshWhatsAppSettings } from "../lib/whatsappSettings";
 import { sendSystemPush } from "../lib/pushNotifications";
 
 type UsageTier = {
@@ -683,21 +683,23 @@ export default function PackagingEmployee() {
 
       let readyWhatsAppError = "";
 
-      if (
-        orderCompleted &&
-        loadWhatsAppSettings(selectedOrder.branchId).sendReadyMessage
-      ) {
+      if (orderCompleted) {
         try {
-          await sendAutomaticWhatsApp(
-            {
-              id: selectedOrder.id,
-              branchId: selectedOrder.branchId,
-              orderNumber: selectedOrder.orderNumber,
-              customerName: selectedOrder.customerName,
-              customerPhone: selectedOrder.customerPhone,
-            },
-            "ready"
-          );
+          const whatsappSettings =
+            await refreshWhatsAppSettings(selectedOrder.branchId);
+
+          if (whatsappSettings.sendReadyMessage) {
+            await sendAutomaticWhatsApp(
+              {
+                id: selectedOrder.id,
+                branchId: selectedOrder.branchId,
+                orderNumber: selectedOrder.orderNumber,
+                customerName: selectedOrder.customerName,
+                customerPhone: selectedOrder.customerPhone,
+              },
+              "ready"
+            );
+          }
         } catch (error) {
           readyWhatsAppError =
             error instanceof Error
