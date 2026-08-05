@@ -18,7 +18,7 @@ async function waitForImages(root: HTMLElement) {
 }
 
 export async function createInvoicePdfFile(order: PrintableOrder): Promise<File> {
-  const settings = await loadSettings();
+  const settings = await loadSettings(order.branchId);
   const html = buildCustomerInvoiceHtml(order, settings, 1);
   const parsed = new DOMParser().parseFromString(html, "text/html");
   const invoice = parsed.querySelector(".invoice-card") as HTMLElement | null;
@@ -100,7 +100,11 @@ export async function createInvoicePdfFile(order: PrintableOrder): Promise<File>
     }
 
     const blob = pdf.output("blob");
-    return new File([blob], `MOOD-Invoice-${order.orderNumber}.pdf`, {
+    const safeBrandName = String(settings.shop_name || "MOOD")
+      .replace(/[^a-zA-Z0-9_-]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "Invoice";
+
+    return new File([blob], `${safeBrandName}-Invoice-${order.orderNumber}.pdf`, {
       type: "application/pdf",
     });
   } finally {

@@ -42,7 +42,8 @@ export function buildCustomerInvoiceHtml(
   return wrapPrintDocument(
     `فاتورة ${escapeHtml(order.orderNumber)}`,
     pages,
-    settings.invoice_orientation || "portrait"
+    settings.invoice_orientation || "portrait",
+    settings
   );
 }
 
@@ -60,7 +61,8 @@ export function buildProductionSheetHtml(
   return wrapPrintDocument(
     `ورقة إنتاج ${escapeHtml(order.orderNumber)}`,
     pages,
-    settings.invoice_orientation || "portrait"
+    settings.invoice_orientation || "portrait",
+    settings
   );
 }
 
@@ -89,7 +91,8 @@ export function buildBothDocumentsHtml(
   return wrapPrintDocument(
     `طباعة الطلب ${escapeHtml(order.orderNumber)}`,
     pages.join(""),
-    settings.invoice_orientation || "portrait"
+    settings.invoice_orientation || "portrait",
+    settings
   );
 }
 
@@ -124,7 +127,11 @@ function createCustomerInvoice(
         <div class="brand-name">${escapeHtml(
           settings.shop_name || "MOOD"
         )}</div>
-        <div class="brand-line">Flowers & Gift Wrapping</div>
+        <div class="brand-line">${escapeHtml(
+          settings.branch_code === "alpha"
+            ? "Gifts • Flowers • Special Moments"
+            : "Flowers & Gift Wrapping"
+        )}</div>
       </header>
 
       <div class="invoice-title">
@@ -340,9 +347,19 @@ function createProductionItem(
 function wrapPrintDocument(
   title: string,
   pages: string,
-  orientation: string
+  orientation: string,
+  settings: Settings
 ) {
   const isLandscape = orientation === "landscape";
+  const primary = sanitizeCssColor(
+    settings.primary_color || "#184b34",
+    "#184b34"
+  );
+  const secondary = sanitizeCssColor(
+    settings.secondary_color || "#eef5f0",
+    "#eef5f0"
+  );
+  const isAlpha = settings.branch_code === "alpha";
 
   return `
     <!DOCTYPE html>
@@ -366,7 +383,7 @@ function wrapPrintDocument(
             padding: 0;
             background: #eef1ef;
             font-family: Arial, Tahoma, sans-serif;
-            color: #18211c;
+            color: ${isAlpha ? "#0f172a" : "#18211c"};
           }
 
           .print-page {
@@ -384,9 +401,20 @@ function wrapPrintDocument(
           }
 
           .brand-header {
+            position: relative;
             text-align: center;
-            border-bottom: 1.2px solid #1f5138;
+            border-bottom: 1.2px solid ${primary};
             padding-bottom: 4mm;
+          }
+
+          .brand-header::before {
+            content: "";
+            display: block;
+            width: ${isAlpha ? "22mm" : "14mm"};
+            height: 1.2mm;
+            margin: 0 auto 3mm;
+            border-radius: 999px;
+            background: ${primary};
           }
 
           .logo {
@@ -401,7 +429,7 @@ function wrapPrintDocument(
             font-size: 22px;
             font-weight: 900;
             letter-spacing: 2px;
-            color: #184b34;
+            color: ${primary};
           }
 
           .brand-line {
@@ -458,8 +486,8 @@ function wrapPrintDocument(
 
           .items-table th {
             padding: 2.4mm 1.5mm;
-            background: #eef5f0;
-            color: #1f5138;
+            background: ${secondary};
+            color: ${primary};
             border-bottom: 1px solid #bfcac2;
             text-align: right;
           }
@@ -498,7 +526,7 @@ function wrapPrintDocument(
             margin: 2mm 0;
             padding: 2.5mm 3mm !important;
             border-radius: 2.5mm;
-            background: #1f5138;
+            background: ${primary};
             color: white;
             font-size: 11px;
           }
@@ -539,7 +567,7 @@ function wrapPrintDocument(
 
           .invoice-footer div {
             width: 100%;
-            color: #1f5138;
+            color: ${primary};
             font-weight: 700;
             font-size: 9px;
           }
@@ -554,14 +582,14 @@ function wrapPrintDocument(
             justify-content: space-between;
             gap: 5mm;
             padding-bottom: 3mm;
-            border-bottom: 1.2px solid #1f5138;
+            border-bottom: 1.2px solid ${primary};
           }
 
           .order-number {
             min-width: 28mm;
             padding: 2.5mm;
             border-radius: 3mm;
-            background: #1f5138;
+            background: ${primary};
             color: white;
             text-align: center;
           }
@@ -597,7 +625,7 @@ function wrapPrintDocument(
             margin: 0 0 2.5mm;
             padding-bottom: 2mm;
             border-bottom: 1px solid #e1e7e3;
-            color: #1f5138;
+            color: ${primary};
             font-size: 11px;
           }
 
@@ -679,6 +707,12 @@ function formatTime(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+
+function sanitizeCssColor(value: string, fallback: string) {
+  const color = String(value || "").trim();
+  return /^#[0-9a-fA-F]{6}$/.test(color) ? color : fallback;
 }
 
 function escapeHtml(value: string) {

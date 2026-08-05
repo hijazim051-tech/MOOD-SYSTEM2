@@ -32,6 +32,17 @@ export type WhatsAppMessageType =
   | "customer_collected"
   | "driver_handover";
 
+const fallbackTemplates: Record<WhatsAppMessageType, string> = {
+  invoice:
+    "مرحبًا {customer_name}، هذه فاتورة الطلب رقم #{order_number} من {branch_name}.",
+  ready:
+    "مرحبًا {customer_name}، طلبك رقم #{order_number} أصبح جاهزًا للاستلام من {branch_name}.",
+  customer_collected:
+    "شكرًا لك {customer_name}. تم تسجيل استلام الطلب رقم #{order_number} من {branch_name}.",
+  driver_handover:
+    "مرحبًا {customer_name}، خرج طلبك رقم #{order_number} للتوصيل مع المندوب {delegate_name} من {branch_name}.",
+};
+
 export function normalizeLibyanPhone(value: string) {
   let phone = String(value || "").replace(/\D/g, "");
 
@@ -52,6 +63,21 @@ export function normalizeLibyanPhone(value: string) {
 
 function money(value?: number) {
   return Number(value || 0).toFixed(2);
+}
+
+function cleanTemplate(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function formatUnknownError(value: unknown): string {
+  if (value instanceof Error) return value.message;
+  if (typeof value === "string") return value;
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return "تعذر إرسال رسالة واتساب";
+  }
 }
 
 function applyTemplate(
@@ -92,12 +118,22 @@ export function buildWhatsAppMessage(
     driver_handover: settings.driverHandoverMessage,
   };
 
-  return applyTemplate(templates[type], {
+  /*
+   * الفاتورة كانت تُرسل حتى لو كان القالب فارغًا لأن معها ملف PDF.
+   * أما رسائل "جاهز" و"المندوب" فهي نصية فقط، والقالب الفارغ
+   * يجعل Edge Function ترفض الطلب. لذلك نستعمل قالبًا افتراضيًا آمنًا.
+   */
+  const selectedTemplate =
+    cleanTemplate(templates[type]) ||
+    fallbackTemplates[type];
+
+  return applyTemplate(selectedTemplate, {
     ...order,
     branchName:
       order.branchName ||
-      settings.branchName,
-  });
+      settings.branchName ||
+      "المحل",
+  }).trim();
 }
 
 async function logWhatsApp(
@@ -149,13 +185,13 @@ async function invokeWhatsAppFunction(payload: {
   );
 
   if (error) {
-    throw error;
+    throw new Error(error.message || "تعذر الاتصال بدالة واتساب");
   }
 
   if (!data?.ok) {
     throw new Error(
       data?.error ||
-        data?.details ||
+        formatUnknownError(data?.details) ||
         "تعذر إرسال رسالة واتساب"
     );
   }
@@ -175,9 +211,24 @@ export async function sendAutomaticWhatsApp(
     throw new Error("رقم الزبون غير موجود");
   }
 
+  if (!order.branchId) {
+    console.warn(
+      "رسالة واتساب بدون branchId، سيتم استعمال Instance الاحتياطية",
+      {
+        orderId: order.id || null,
+        orderNumber: order.orderNumber,
+        type,
+      }
+    );
+  }
+
   await refreshWhatsAppSettings(order.branchId);
 
   const message = buildWhatsAppMessage(order, type);
+
+  if (!message) {
+    throw new Error(`قالب رسالة ${type} فارغ`);
+  }
 
   try {
     const data = await invokeWhatsAppFunction({
@@ -282,6 +333,10 @@ export function openOrderWhatsApp(
 
   const message = buildWhatsAppMessage(order, type);
 
+  if (!message) {
+    throw new Error(`قالب رسالة ${type} فارغ`);
+  }
+
   void logWhatsApp(
     order,
     type,
@@ -321,8 +376,12 @@ export async function shareInvoicePdfToWhatsApp(
     order.orderNumber
   ).replace(/[^a-zA-Z0-9_-]/g, "-");
 
+  const safeBranchId = String(
+    order.branchId || "default"
+  ).replace(/[^a-zA-Z0-9_-]/g, "-");
+
   const storagePath =
-    `${safeOrderNumber}/${Date.now()}-${file.name}`;
+    `${safeBranchId}/${safeOrderNumber}/${Date.now()}-${file.name}`;
 
   const { error: uploadError } =
     await supabase.storage

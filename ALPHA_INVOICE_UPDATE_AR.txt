@@ -1,0 +1,20 @@
+تحديث فاتورة ALPHA
+
+تم جعل الفاتورة تعتمد على branchId:
+- طلب MOOD يطبع باسم وشعار وألوان MOOD.
+- طلب ALPHA يطبع باسم وشعار وألوان ALPHA.
+
+بيانات التصميم تُقرأ من جدول branches:
+name, logo_url, primary_color, secondary_color, phone, whatsapp_number, address, invoice_prefix, currency
+
+عنوان وتذييل الفاتورة يُقرآن من branch_settings:
+invoice_title, invoice_footer
+
+لأفضل نتيجة لفرع ALPHA اضبط:
+code = alpha
+name = ALPHA
+primary_color = #1D4ED8
+secondary_color = #DBEAFE
+invoice_prefix = ALP
+
+وارفع شعار ALPHA وضع رابطه في logo_url.

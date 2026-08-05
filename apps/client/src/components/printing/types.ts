@@ -27,6 +27,8 @@ export type PrintableOrderItem = {
 export type PrintableOrder = {
   id: number;
 
+  branchId?: string | null;
+
   orderNumber: string;
 
   customerName: string;

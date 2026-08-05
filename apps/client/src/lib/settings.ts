@@ -52,9 +52,16 @@ export type Settings = {
 
   system_version: string;
   system_name: string;
+
+  branch_id?: string | null;
+  branch_code?: string;
+  primary_color?: string;
+  secondary_color?: string;
 };
 
-export async function loadSettings(): Promise<Settings> {
+export async function loadSettings(
+  branchId?: string | null
+): Promise<Settings> {
   const { data, error } = await supabase
     .from("settings")
     .select("*")
@@ -63,7 +70,81 @@ export async function loadSettings(): Promise<Settings> {
 
   if (error) throw error;
 
-  return data as Settings;
+  const globalSettings = data as Settings;
+
+  if (!branchId) {
+    return globalSettings;
+  }
+
+  const [{ data: branch, error: branchError }, { data: branchSettings, error: branchSettingsError }] =
+    await Promise.all([
+      supabase
+        .from("branches")
+        .select(
+          "id, code, name, logo_url, primary_color, secondary_color, phone, whatsapp_number, address, invoice_prefix, currency"
+        )
+        .eq("id", branchId)
+        .maybeSingle(),
+      supabase
+        .from("branch_settings")
+        .select("invoice_title, invoice_footer")
+        .eq("branch_id", branchId)
+        .maybeSingle(),
+    ]);
+
+  if (branchError) {
+    console.warn("تعذر تحميل بيانات الفرع للفاتورة:", branchError);
+    return globalSettings;
+  }
+
+  if (branchSettingsError) {
+    console.warn(
+      "تعذر تحميل إعدادات فاتورة الفرع:",
+      branchSettingsError
+    );
+  }
+
+  if (!branch) {
+    return globalSettings;
+  }
+
+  const branchCode = String(branch.code || "").trim().toLowerCase();
+  const isAlpha =
+    branchCode === "alpha" ||
+    String(branch.name || "").trim().toLowerCase() === "alpha";
+
+  return {
+    ...globalSettings,
+    branch_id: branch.id,
+    branch_code: branchCode,
+    shop_name: String(branch.name || globalSettings.shop_name || "MOOD"),
+    logo_url: String(branch.logo_url || ""),
+    phone: String(branch.phone || ""),
+    whatsapp: String(branch.whatsapp_number || ""),
+    address: String(branch.address || ""),
+    invoice_prefix: String(
+      branch.invoice_prefix || globalSettings.invoice_prefix || "INV"
+    ),
+    currency: String(branch.currency || globalSettings.currency || "LYD"),
+    invoice_title: String(
+      branchSettings?.invoice_title ||
+        (isAlpha ? "فاتورة مبيعات ALPHA" : globalSettings.invoice_title) ||
+        "فاتورة مبيعات"
+    ),
+    invoice_footer: String(
+      branchSettings?.invoice_footer ||
+        (isAlpha
+          ? "شكرًا لاختياركم ALPHA — نهتم بتفاصيل هديتكم"
+          : globalSettings.invoice_footer) ||
+        "شكرًا لاختياركم"
+    ),
+    primary_color: String(
+      branch.primary_color || (isAlpha ? "#1d4ed8" : "#184b34")
+    ),
+    secondary_color: String(
+      branch.secondary_color || (isAlpha ? "#dbeafe" : "#eef5f0")
+    ),
+  };
 }
 
 export async function saveSettings(values: Partial<Settings>) {
