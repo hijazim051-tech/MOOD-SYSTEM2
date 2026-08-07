@@ -21,8 +21,8 @@ const items: MenuItem[] = [
   { key: "dashboard", label: "🏠 لوحة التحكم" },
   { key: "tasks", label: "✅ المهام" },
   { key: "task-create", label: "➕ إضافة مهمة", roles: ["owner", "admin", "manager"] },
-  { key: "orders", label: "📋 طلبات المحل" },
-  { key: "driver-orders", label: "🛵 طلبات المندوبين" },
+  { key: "orders", label: "📋 الطلبات" },
+  { key: "driver-orders", label: "💰 تحصيل المندوبين" },
   { key: "new-order", label: "➕ طلب جديد" },
   { key: "ready-products", label: "📦 الجاهزات" },
   { key: "offer-create", label: "➕ إضافة عرض" },
@@ -30,6 +30,7 @@ const items: MenuItem[] = [
   { key: "production", label: "🏭 مركز الإنتاج" },
   { key: "items", label: "🌹 إدارة المنتجات" },
   { key: "inventory", label: "📦 المخزون" },
+  { key: "opening-stock", label: "🧾 الرصيد الافتتاحي", roles: ["owner", "admin", "manager", "accountant"] },
   { key: "item-tracking", label: "🔎 تتبع الأصناف" },
   { key: "purchases", label: "💰 المشتريات" },
   { key: "purchase-invoices", label: "🧾 فواتير المشتريات" },
@@ -185,7 +186,7 @@ export default function Sidebar({
             {items
               .filter((item) =>
                 (!item.roles || item.roles.includes(normalizedRole)) &&
-                (allowedPages === null || allowedPages.has(item.key) || (item.key === "driver-orders" && allowedPages.has("orders")))
+                (allowedPages === null || allowedPages.has(item.key) || (item.key === "driver-orders" && allowedPages.has("orders")) || (item.key === "opening-stock" && allowedPages.has("inventory")))
               )
               .map((item) => {
                 const active = page === item.key;

@@ -46,6 +46,8 @@ import GrowthCenter from "./pages/GrowthCenter";
 import WhatsAppLogs from "./pages/WhatsAppLogs";
 import Trash from "./pages/Trash";
 import Drivers from "./pages/Drivers";
+import DriverCollections from "./pages/DriverCollections";
+import OpeningStock from "./pages/OpeningStock";
 import Withdrawals from "./pages/Withdrawals";
 import { getCurrentUserPageAccess } from "./lib/pageAccess";
 import { getUserNotificationPreferences, preferenceMap, type UserNotificationPreference } from "./lib/notificationPreferences";
@@ -458,7 +460,10 @@ function App() {
   }
 
   useEffect(() => {
-    if (allowedPages && !allowedPages.has(page)) {
+    const isAliasAllowed =
+      (page === "driver-orders" && allowedPages?.has("orders")) ||
+      (page === "opening-stock" && allowedPages?.has("inventory"));
+    if (allowedPages && !allowedPages.has(page) && !isAliasAllowed) {
       const fallback = allowedPages.has("dashboard") ? "dashboard" : Array.from(allowedPages)[0];
       if (fallback) setPage(fallback);
     }
@@ -528,14 +533,13 @@ function App() {
         {page === "dashboard" && <Dashboard />}
         {page === "pos" && <POS setPage={setPage} />}
         {page === "orders" && (
-          <Orders setPage={setPage} userRole={userRole} viewMode="shop" />
+          <Orders setPage={setPage} userRole={userRole} />
         )}
-        {page === "driver-orders" && (
-          <Orders setPage={setPage} userRole={userRole} viewMode="drivers" />
-        )}
+        {page === "driver-orders" && <DriverCollections />}
         {page === "new-order" && <NewOrder />}
         {page === "items" && <Items />}
         {page === "inventory" && <Inventory />}
+        {page === "opening-stock" && <OpeningStock />}
         {page === "production" && <ProductionCenter />}
         {page === "purchases" && <Purchases />}
         {page === "suppliers" && <Suppliers />}

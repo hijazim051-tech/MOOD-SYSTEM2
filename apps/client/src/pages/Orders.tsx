@@ -8,10 +8,7 @@ import { moveToTrash } from "../lib/trash";
 import { openInvoiceWhatsApp, sendAutomaticWhatsApp } from "../lib/whatsapp";
 import { refreshWhatsAppSettings } from "../lib/whatsappSettings";
 import { transferOrderToBranch } from "../lib/branchStock";
-import {
-  reopenOrder,
-  resetOrderPackagingForEdit,
-} from "../lib/orderEditWorkflow";
+import { resetOrderPackagingForEdit } from "../lib/orderEditWorkflow";
 import { sendSystemPush } from "../lib/pushNotifications";
 
 type PackagingUsage = {
@@ -75,7 +72,6 @@ type Order = PrintOrder & {
 type Props = {
   setPage?: (page: string) => void;
   userRole?: string;
-  viewMode?: "shop" | "drivers";
 };
 
 type DriverForm = {
@@ -130,7 +126,6 @@ const inputClass =
 export default function Orders({
   setPage,
   userRole = "employee",
-  viewMode = "shop",
 }: Props) {
   const { effectiveBranchId } = useBranch();
   const [orders, setOrders] = useState<Order[]>([]);
@@ -361,8 +356,6 @@ export default function Orders({
     const keyword = search.trim().toLowerCase();
 
     return orders.filter((order) => {
-      if (viewMode === "shop" && order.status === "out_for_delivery") return false;
-      if (viewMode === "drivers" && order.status !== "out_for_delivery") return false;
       const searchableText = [
         order.orderNumber,
         order.customerName,
@@ -382,88 +375,17 @@ export default function Orders({
 
       return matchesSearch && matchesDate && matchesStatus;
     });
-  }, [orders, search, dateFilter, statusFilter, viewMode]);
+  }, [orders, search, dateFilter, statusFilter]);
 
-  const statistics = useMemo(() => {
-    const scopedOrders = orders.filter((order) =>
-      viewMode === "drivers"
-        ? order.status === "out_for_delivery"
-        : order.status !== "out_for_delivery"
-    );
-    return {
-      total: scopedOrders.length,
-      packaging: scopedOrders.filter((order) => order.status === "packaging").length,
-      ready: scopedOrders.filter((order) => order.status === "ready").length,
-      delivery: scopedOrders.filter((order) => order.status === "out_for_delivery").length,
-      delivered: scopedOrders.filter((order) => order.status === "delivered").length,
-    };
-  }, [orders, viewMode]);
+  const statistics = useMemo(() => ({
+    total: orders.length,
+    packaging: orders.filter((order) => order.status === "packaging").length,
+    ready: orders.filter((order) => order.status === "ready").length,
+    delivery: orders.filter((order) => order.status === "out_for_delivery").length,
+    delivered: orders.filter((order) => order.status === "delivered").length,
+  }), [orders]);
 
-  const driverSummaries = useMemo<DriverSummary[]>(() => {
-    const map = new Map<string, DriverSummary>();
 
-    for (const order of orders) {
-      if (
-        order.status !== "out_for_delivery" ||
-        !order.deliveryDriverName.trim()
-      ) {
-        continue;
-      }
-
-      const normalizedName = order.deliveryDriverName
-        .trim()
-        .toLowerCase();
-      const normalizedPhone = order.deliveryDriverPhone.trim();
-      const key = `${normalizedName}__${normalizedPhone}`;
-
-      const current = map.get(key) || {
-        key,
-        driverName: order.deliveryDriverName.trim(),
-        driverPhone: normalizedPhone,
-        activeOrders: [],
-        openMoneyOrders: [],
-        ordersCount: 0,
-        amountDue: 0,
-      };
-
-      current.activeOrders.push(order);
-      current.ordersCount += 1;
-
-      if (
-        order.driverMoneyStatus === "with_driver" &&
-        order.driverCollectionAmount > 0
-      ) {
-        current.openMoneyOrders.push(order);
-        current.amountDue += Number(
-          order.driverCollectionAmount || 0
-        );
-      }
-
-      map.set(key, current);
-    }
-
-    return Array.from(map.values()).sort(
-      (a, b) => b.amountDue - a.amountDue
-    );
-  }, [orders]);
-
-  const outsideMoneyTotal = useMemo(
-    () =>
-      driverSummaries.reduce(
-        (sum, driver) => sum + driver.amountDue,
-        0
-      ),
-    [driverSummaries]
-  );
-
-  const activeDriverOrdersCount = useMemo(
-    () =>
-      driverSummaries.reduce(
-        (sum, driver) => sum + driver.ordersCount,
-        0
-      ),
-    [driverSummaries]
-  );
 
   const canDelete = userRole === "owner" || userRole === "admin";
 
@@ -511,19 +433,6 @@ export default function Orders({
     }
 
     alert("افتح صفحة طلب جديد لإكمال تعديل الطلب.");
-  }
-
-  async function reopenDeliveredOrder(order: Order) {
-    const reason = window.prompt("اكتب سبب إعادة فتح الطلب:");
-    if (!reason?.trim()) return;
-
-    try {
-      await reopenOrder(order.id, reason);
-      await loadOrders();
-      alert("تمت إعادة فتح الطلب للتعديل ✅");
-    } catch (error: unknown) {
-      alert(getErrorMessage(error));
-    }
   }
 
   async function markPackagingComplete(order: Order) {
@@ -901,9 +810,9 @@ export default function Orders({
     <div className="space-y-6 p-4 md:p-8" dir="rtl">
       <header className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
         <div>
-          <h1 className="text-3xl font-bold md:text-4xl">{viewMode === "drivers" ? "طلبات المندوبين" : "طلبات المحل"}</h1>
+          <h1 className="text-3xl font-bold md:text-4xl">الطلبات</h1>
           <p className="mt-1 text-gray-500">
-            {viewMode === "drivers" ? "الطلبات الخارجة للتوصيل وتسوية أموال المندوبين" : "الطلبات الموجودة داخل المحل حتى تسليمها للمندوب أو العميل"}
+            كل الطلبات في مكان واحد؛ افتح الطلب لمشاهدة جميع التفاصيل والإجراءات
           </p>
         </div>
 
@@ -924,81 +833,9 @@ export default function Orders({
         <StatCard label="تم التسليم" value={statistics.delivered} className="text-green-700" />
       </section>
 
-      {viewMode === "drivers" && (
-      <section className="rounded-2xl border-2 border-amber-200 bg-amber-50 p-5 shadow-sm">
-        <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
-          <div>
-            <p className="text-sm font-semibold text-amber-700">
-              حسابات المندوبين
-            </p>
-            <p className="mt-1 text-4xl font-bold text-amber-900">
-              {outsideMoneyTotal.toFixed(2)} د.ل
-            </p>
-            <p className="mt-1 text-sm text-amber-700">
-              {driverSummaries.length} مندوب — {activeDriverOrdersCount} طلب معهم حاليًا
-            </p>
-          </div>
-        </div>
-
-        {driverSummaries.length > 0 ? (
-          <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
-            {driverSummaries.map((driver) => (
-              <div
-                key={driver.key}
-                className="rounded-2xl bg-white p-5 shadow-sm"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xl font-bold">
-                      {driver.driverName}
-                    </p>
-                    <p className="mt-1 text-sm text-gray-500">
-                      {driver.driverPhone || "لا يوجد رقم هاتف"}
-                    </p>
-                  </div>
-                  <span className="rounded-full bg-blue-100 px-3 py-1 text-sm font-bold text-blue-700">
-                    {driver.ordersCount} طلب
-                  </span>
-                </div>
-
-                <div className="mt-4 grid grid-cols-2 gap-3">
-                  <div className="rounded-xl bg-blue-50 p-3 text-center">
-                    <p className="text-xs text-blue-600">الطلبات معه</p>
-                    <p className="mt-1 text-2xl font-bold text-blue-800">
-                      {driver.ordersCount}
-                    </p>
-                  </div>
-
-                  <div className="rounded-xl bg-amber-50 p-3 text-center">
-                    <p className="text-xs text-amber-700">المبلغ عليه</p>
-                    <p className="mt-1 text-2xl font-bold text-amber-900">
-                      {driver.amountDue.toFixed(2)} د.ل
-                    </p>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setSelectedDriver(driver)}
-                  className="mt-4 w-full rounded-xl bg-gray-900 px-4 py-3 font-bold text-white"
-                >
-                  عرض طلبات المندوب
-                </button>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="mt-5 rounded-xl bg-white p-5 text-center text-gray-500">
-            لا توجد طلبات مع المندوبين حاليًا.
-          </div>
-        )}
-      </section>
-
-      )}
-
       <section className="rounded-2xl bg-white p-5 shadow">
         <div className="mb-4 flex flex-wrap gap-2">
-          {statusTabs.filter((tab) => viewMode === "drivers" ? ["all", "out_for_delivery"].includes(tab.value) : tab.value !== "out_for_delivery").map((tab) => (
+          {statusTabs.map((tab) => (
             <button
               key={tab.value}
               type="button"
@@ -1030,186 +867,25 @@ export default function Orders({
         </div>
       </section>
 
-      <section className="space-y-4">
-        {filteredOrders.map((order) => {
-          const packagingSummary = getPackagingSummary(order);
-
-          return (
-            <article key={order.id} className="rounded-2xl bg-white p-5 shadow md:p-6">
-              <div className="flex flex-col justify-between gap-5 lg:flex-row">
-                <div>
-                  <div className="flex flex-wrap items-center gap-3">
-                    <h2 className="text-xl font-bold">طلب #{order.orderNumber}</h2>
-                    <StatusBadge status={order.status} />
-                    {packagingSummary.total > 0 && (
-                      <PackagingBadge
-                        completed={packagingSummary.completed}
-                        total={packagingSummary.total}
-                      />
-                    )}
-                  </div>
-
-                  <p className="mt-2 text-sm text-gray-500">{formatDateTime(order.createdAt)}</p>
-                  <p className="mt-3 font-semibold">{order.customerName || "عميل غير مسجل"}</p>
-                  <p className="text-gray-500">{order.customerPhone || "-"}</p>
-
-                  {order.status === "out_for_delivery" && (
-                    <div className="mt-3 rounded-xl bg-blue-50 p-3 text-sm">
-                      <p className="font-bold text-blue-900">
-                        ✅ تم استلام الطلب بواسطة المندوب {order.deliveryDriverName || "-"}
-                      </p>
-                      <p className="mt-1 text-blue-700">
-                        وقت الاستلام: {formatDateTime(order.handedToDriverAt)}
-                      </p>
-                      <p className="mt-1 font-bold text-blue-800">
-                        المندوب: {order.deliveryDriverName || "-"}
-                      </p>
-                      <p className="text-blue-700">
-                        المبلغ المطلوب: {order.driverCollectionAmount.toFixed(2)} د.ل
-                      </p>
-                      <p className="text-blue-700">
-                        حالة المال: {getMoneyStatusLabel(order.driverMoneyStatus)}
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                <div className="lg:text-left">
-                  <p className="text-gray-500">إجمالي الطلب</p>
-                  <p className="text-3xl font-bold text-emerald-700">
-                    {order.total.toFixed(2)} د.ل
-                  </p>
-                  <p className="mt-2 text-sm text-gray-500">
-                    المدفوع: {order.paidAmount.toFixed(2)} د.ل
-                  </p>
-                  <p
-                    className={`text-sm font-semibold ${
-                      order.remainingAmount > 0 ? "text-red-600" : "text-green-700"
-                    }`}
-                  >
-                    المتبقي: {order.remainingAmount.toFixed(2)} د.ل
-                  </p>
-                </div>
+      <section className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3">
+        {filteredOrders.map((order) => (
+          <button
+            key={order.id}
+            type="button"
+            onClick={() => setSelectedOrder(order)}
+            className="rounded-2xl border border-gray-100 bg-white p-5 text-right shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-lg font-black">فاتورة #{order.orderNumber}</p>
+                <p className="mt-2 font-bold text-gray-800">{order.customerName || "عميل غير مسجل"}</p>
+                <p className="mt-1 text-sm text-gray-500">{order.customerPhone || "بدون رقم"}</p>
               </div>
-
-              <div className="mt-5 flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={() => setSelectedOrder(order)}
-                  className="rounded-lg bg-blue-600 px-4 py-2 text-white"
-                >
-                  عرض التفاصيل
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    void openInvoiceWhatsApp(order).catch((error) => {
-                      alert(error instanceof Error ? error.message : "تعذر تجهيز فاتورة PDF");
-                    });
-                  }}
-                  className="rounded-lg bg-green-600 px-4 py-2 font-semibold text-white"
-                >
-                  📱 واتساب
-                </button>
-
-                {order.status === "packaging" && packagingSummary.pending > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => openPackaging(order)}
-                    className="rounded-lg bg-purple-700 px-4 py-2 font-semibold text-white"
-                  >
-                    🎁 فتح التغليف
-                  </button>
-                )}
-
-                {order.status === "packaging" && (
-                  <button
-                    type="button"
-                    disabled={busyOrderId === order.id}
-                    onClick={() => void markPackagingComplete(order)}
-                    className="rounded-lg bg-emerald-700 px-4 py-2 font-semibold text-white disabled:opacity-50"
-                  >
-                    تم التغليف
-                  </button>
-                )}
-
-                {order.status === "ready" && (
-                  <>
-                    <button
-                      type="button"
-                      disabled={busyOrderId === order.id}
-                      onClick={() => openCustomerCollection(order)}
-                      className="rounded-lg bg-green-700 px-4 py-2 font-semibold text-white disabled:opacity-50"
-                    >
-                      استلمه العميل
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => openDriverDialog(order)}
-                      className="rounded-lg bg-blue-700 px-4 py-2 font-semibold text-white"
-                    >
-                      استلمه المندوب
-                    </button>
-                  </>
-                )}
-
-                {!order.isLocked ? (
-                  <button
-                    type="button"
-                    onClick={() => void prepareFullEdit(order)}
-                    disabled={
-                      order.status === "cancelled" ||
-                      order.status === "out_for_delivery" ||
-                      order.status === "delivered"
-                    }
-                    className="rounded-lg bg-orange-100 px-4 py-2 font-semibold text-orange-700 disabled:opacity-40"
-                  >
-                    ✏️ تعديل كامل
-                  </button>
-                ) : canDelete ? (
-                  <button
-                    type="button"
-                    onClick={() => void reopenDeliveredOrder(order)}
-                    className="rounded-lg bg-yellow-100 px-4 py-2 font-semibold text-yellow-800"
-                  >
-                    🔓 إعادة فتح
-                  </button>
-                ) : null}
-
-                <button
-                  type="button"
-                  onClick={() => setPrintOrder(order)}
-                  className="rounded-lg bg-gray-800 px-4 py-2 text-white"
-                >
-                  الطباعة
-                </button>
-
-                {order.status !== "cancelled" && order.status !== "delivered" && (
-                  <button
-                    type="button"
-                    disabled={busyOrderId === order.id}
-                    onClick={() => void cancelOrder(order)}
-                    className="rounded-lg bg-red-100 px-4 py-2 font-semibold text-red-700 disabled:opacity-50"
-                  >
-                    إلغاء الطلب
-                  </button>
-                )}
-
-                {canDelete && order.status === "cancelled" && (
-                  <button
-                    type="button"
-                    disabled={deletingOrderId === order.id}
-                    onClick={() => void deleteOrder(order)}
-                    className="rounded-lg bg-red-700 px-4 py-2 font-semibold text-white disabled:opacity-50"
-                  >
-                    حذف نهائي
-                  </button>
-                )}
-              </div>
-            </article>
-          );
-        })}
+              <StatusBadge status={order.status} />
+            </div>
+            <p className="mt-4 text-xs text-gray-400">اضغط لفتح التفاصيل والاستلام والتسليم والطباعة وكل الإجراءات</p>
+          </button>
+        ))}
 
         {filteredOrders.length === 0 && (
           <div className="rounded-2xl bg-white p-12 text-center text-gray-500 shadow">
@@ -1226,6 +902,15 @@ export default function Orders({
           onPackaging={() => openPackaging(selectedOrder)}
           onReturn={() => { setReturnOrder(selectedOrder); setSelectedOrder(null); }}
           onTransferred={async () => { setSelectedOrder(null); await loadOrders(); }}
+          onWhatsApp={() => void openInvoiceWhatsApp(selectedOrder).catch((error) => alert(error instanceof Error ? error.message : "تعذر تجهيز فاتورة PDF"))}
+          onMarkReady={() => void markPackagingComplete(selectedOrder)}
+          onCustomerCollection={() => openCustomerCollection(selectedOrder)}
+          onDriverHandover={() => openDriverDialog(selectedOrder)}
+          onEdit={() => void prepareFullEdit(selectedOrder)}
+          onCancel={() => void cancelOrder(selectedOrder)}
+          onDelete={() => void deleteOrder(selectedOrder)}
+          canDelete={canDelete}
+          busy={busyOrderId === selectedOrder.id || deletingOrderId === selectedOrder.id}
         />
       )}
 
@@ -1605,6 +1290,15 @@ function OrderDetailsDialog({
   onPackaging,
   onReturn,
   onTransferred,
+  onWhatsApp,
+  onMarkReady,
+  onCustomerCollection,
+  onDriverHandover,
+  onEdit,
+  onCancel,
+  onDelete,
+  canDelete,
+  busy,
 }: {
   order: Order;
   onClose: () => void;
@@ -1612,6 +1306,15 @@ function OrderDetailsDialog({
   onPackaging: () => void;
   onReturn: () => void;
   onTransferred: () => Promise<void>;
+  onWhatsApp: () => void;
+  onMarkReady: () => void;
+  onCustomerCollection: () => void;
+  onDriverHandover: () => void;
+  onEdit: () => void;
+  onCancel: () => void;
+  onDelete: () => void;
+  canDelete: boolean;
+  busy: boolean;
 }) {
   const packagingSummary = getPackagingSummary(order);
   const { branches } = useBranch();
@@ -1808,42 +1511,16 @@ function OrderDetailsDialog({
       </div>
 
       <div className="mt-6 flex flex-wrap justify-end gap-3">
-        {order.status === "packaging" && packagingSummary.pending > 0 && (
-          <button
-            type="button"
-            onClick={onPackaging}
-            className="rounded-xl bg-purple-700 px-6 py-3 font-semibold text-white"
-          >
-            فتح التغليف
-          </button>
-        )}
-        {(order.status === "delivered" || order.status === "partially_returned") && (
-          <button
-            type="button"
-            onClick={onReturn}
-            className="rounded-xl bg-orange-700 px-6 py-3 font-semibold text-white"
-          >
-            إرجاع الطلب
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={() => {
-            void openInvoiceWhatsApp(order).catch((error) => {
-              alert(error instanceof Error ? error.message : "تعذر تجهيز فاتورة PDF");
-            });
-          }}
-          className="rounded-xl bg-green-600 px-6 py-3 font-semibold text-white"
-        >
-          إرسال الفاتورة واتساب
-        </button>
-        <button
-          type="button"
-          onClick={onPrint}
-          className="rounded-xl bg-emerald-700 px-6 py-3 font-semibold text-white"
-        >
-          الطباعة
-        </button>
+        {order.status === "packaging" && packagingSummary.pending > 0 && <button type="button" onClick={onPackaging} className="rounded-xl bg-purple-700 px-5 py-3 font-semibold text-white">فتح التغليف</button>}
+        {order.status === "packaging" && <button type="button" disabled={busy} onClick={onMarkReady} className="rounded-xl bg-emerald-700 px-5 py-3 font-semibold text-white disabled:opacity-50">تم التغليف</button>}
+        {order.status === "ready" && <button type="button" disabled={busy} onClick={onCustomerCollection} className="rounded-xl bg-green-700 px-5 py-3 font-semibold text-white disabled:opacity-50">استلمه العميل</button>}
+        {order.status === "ready" && <button type="button" disabled={busy} onClick={onDriverHandover} className="rounded-xl bg-blue-700 px-5 py-3 font-semibold text-white disabled:opacity-50">استلمه المندوب</button>}
+        {!order.isLocked && !["cancelled","out_for_delivery","delivered"].includes(order.status) && <button type="button" onClick={onEdit} className="rounded-xl bg-orange-100 px-5 py-3 font-semibold text-orange-700">تعديل كامل</button>}
+        {(order.status === "delivered" || order.status === "partially_returned") && <button type="button" onClick={onReturn} className="rounded-xl bg-orange-700 px-5 py-3 font-semibold text-white">إرجاع الطلب</button>}
+        <button type="button" onClick={onWhatsApp} className="rounded-xl bg-green-600 px-5 py-3 font-semibold text-white">إرسال الفاتورة واتساب</button>
+        <button type="button" onClick={onPrint} className="rounded-xl bg-gray-900 px-5 py-3 font-semibold text-white">الطباعة</button>
+        {!["cancelled","delivered"].includes(order.status) && <button type="button" disabled={busy} onClick={onCancel} className="rounded-xl bg-red-100 px-5 py-3 font-semibold text-red-700 disabled:opacity-50">إلغاء الطلب</button>}
+        {canDelete && order.status === "cancelled" && <button type="button" disabled={busy} onClick={onDelete} className="rounded-xl bg-red-700 px-5 py-3 font-semibold text-white disabled:opacity-50">حذف نهائي</button>}
       </div>
     </Modal>
   );
@@ -1944,14 +1621,6 @@ function StatusBadge({ status }: { status: string }) {
       }`}
     >
       {getStatusLabel(status)}
-    </span>
-  );
-}
-
-function PackagingBadge({ completed, total }: { completed: number; total: number }) {
-  return (
-    <span className="rounded-full bg-purple-100 px-3 py-1 text-sm font-semibold text-purple-700">
-      تغليف {completed}/{total}
     </span>
   );
 }

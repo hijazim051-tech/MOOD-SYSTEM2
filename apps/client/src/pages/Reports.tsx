@@ -61,6 +61,8 @@ type SupplierInvoice = {
   supplierName: string;
   grandTotal: number;
   paidAmount: number;
+  deliveryCost: number;
+  invoiceDate: string;
 };
 
 type SupplierPayment = {
@@ -232,6 +234,8 @@ export default function Reports() {
             supplier_name_snapshot,
             grand_total,
             paid_amount,
+            delivery_cost,
+            invoice_date,
             branch_id
           `),
 
@@ -308,6 +312,8 @@ export default function Reports() {
           supplierName: String(invoice.supplier_name_snapshot || "بدون اسم"),
           grandTotal: Number(invoice.grand_total || 0),
           paidAmount: Number(invoice.paid_amount || 0),
+          deliveryCost: Number(invoice.delivery_cost || 0),
+          invoiceDate: String(invoice.invoice_date || ""),
         })).filter((invoice) => !effectiveBranchId || invoice.branchId === effectiveBranchId)
       );
 
@@ -379,6 +385,12 @@ export default function Reports() {
   const totalExpenses = useMemo(
     () => filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0),
     [filteredExpenses]
+  );
+
+  const purchaseDeliveryCost = useMemo(() =>
+    filterByPeriod(supplierInvoices, period, customFrom, customTo, (item) => item.invoiceDate)
+      .reduce((sum, invoice) => sum + invoice.deliveryCost, 0),
+    [supplierInvoices, period, customFrom, customTo]
   );
 
   const accountingSummary = useMemo(() => ({
@@ -995,8 +1007,16 @@ export default function Reports() {
       <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
         <StatCard label="نسبة التحصيل" value={`${summary.collectionRate.toFixed(1)}%`} valueClass="text-cyan-700" />
         <StatCard label="الخصومات" value={money(summary.discounts)} valueClass="text-orange-700" />
-        <StatCard label="مصروف التوصيل النقدي" value={money(summary.deliveryCashExpenses)} valueClass="text-red-700" />
+        <StatCard label="مصاريف توصيل طلبات العملاء" value={money(summary.deliveryCashExpenses)} valueClass="text-red-700" />
         <StatCard label="ديون الموردين الحالية" value={money(summary.supplierDebt)} valueClass="text-red-700" />
+      </section>
+
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <StatCard label="تكاليف توصيل المشتريات" value={money(purchaseDeliveryCost)} valueClass="text-violet-700" />
+        <div className="rounded-2xl border border-violet-100 bg-violet-50 p-5 text-sm text-violet-900 shadow-sm">
+          <p className="font-black">فصل التوصيل محاسبيًا</p>
+          <p className="mt-2">تكاليف توصيل المشتريات معروضة هنا وحدها، ولا تشمل رسوم أو مصاريف توصيل طلبات العملاء.</p>
+        </div>
       </section>
 
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
