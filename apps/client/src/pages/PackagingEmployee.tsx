@@ -2,8 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useBranch } from "../context/BranchContext";
 import { sendAutomaticWhatsApp } from "../lib/whatsapp";
-import { refreshWhatsAppSettings } from "../lib/whatsappSettings";
-import { sendSystemPush } from "../lib/pushNotifications";
+import { loadWhatsAppSettings } from "../lib/whatsappSettings";
 
 type UsageTier = {
   id: string;
@@ -192,6 +191,25 @@ export default function PackagingEmployee() {
   const needsUsageTiers = targetValue > 0;
   const isBouquetItem =
     normalizeStatus(selectedItem?.itemType || "") === "bouquet";
+
+  /*
+   * الباقة الطبيعية تحفظ الورود المختارة وقت إنشاء الطلب
+   * داخل order_custom_item_components بالقسم flowers.
+   * نفصلها هنا عن باقي مكونات التجهيز حتى يرى موظف التغليف
+   * اسم الوردة + اللون + الكمية بوضوح.
+   */
+  const selectedComponents = selectedItem?.components || [];
+  const naturalFlowerComponents = selectedComponents.filter(
+    (component) => normalizeStatus(component.section) === "flowers",
+  );
+  const otherPackagingComponents = selectedComponents.filter(
+    (component) => normalizeStatus(component.section) !== "flowers",
+  );
+  const naturalFlowerTotal = naturalFlowerComponents.reduce(
+    (sum, component) => sum + Number(component.quantity || 0),
+    0,
+  );
+
   const selectedWrappingOptions = selectedItem?.wrappingOptions || [];
   const wrappingTotal = selectedWrappingOptions.reduce(
     (sum, option) => sum + Number(wrappingSelections[option.id] || 0),
@@ -683,23 +701,21 @@ export default function PackagingEmployee() {
 
       let readyWhatsAppError = "";
 
-      if (orderCompleted) {
+      if (
+        orderCompleted &&
+        loadWhatsAppSettings(selectedOrder.branchId).sendReadyMessage
+      ) {
         try {
-          const whatsappSettings =
-            await refreshWhatsAppSettings(selectedOrder.branchId);
-
-          if (whatsappSettings.sendReadyMessage) {
-            await sendAutomaticWhatsApp(
-              {
-                id: selectedOrder.id,
-                branchId: selectedOrder.branchId,
-                orderNumber: selectedOrder.orderNumber,
-                customerName: selectedOrder.customerName,
-                customerPhone: selectedOrder.customerPhone,
-              },
-              "ready"
-            );
-          }
+          await sendAutomaticWhatsApp(
+            {
+              id: selectedOrder.id,
+              branchId: selectedOrder.branchId,
+              orderNumber: selectedOrder.orderNumber,
+              customerName: selectedOrder.customerName,
+              customerPhone: selectedOrder.customerPhone,
+            },
+            "ready"
+          );
         } catch (error) {
           readyWhatsAppError =
             error instanceof Error
@@ -714,15 +730,6 @@ export default function PackagingEmployee() {
       setCompletionImage(null);
       setCompletionImagePreview("");
       await loadData();
-
-      if (orderCompleted) {
-        void sendSystemPush({
-          title: "طلب جاهز",
-          message: `الطلب #${selectedOrder.orderNumber} أصبح جاهزًا`,
-          url: "/",
-          tag: `order-ready-${selectedOrder.id}`,
-        });
-      }
 
       if (orderCompleted && readyWhatsAppError) {
         alert(
@@ -844,8 +851,8 @@ export default function PackagingEmployee() {
         />
       </section>
 
-      <div className="space-y-6">
-        {!selectedOrder && <section className="rounded-2xl bg-white p-5 shadow">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[420px_1fr]">
+        <section className="rounded-2xl bg-white p-5 shadow">
           <h2 className="mb-4 text-xl font-bold">الطلبات</h2>
 
           <div className="max-h-[720px] space-y-3 overflow-y-auto">
@@ -886,11 +893,34 @@ export default function PackagingEmployee() {
                   </p>
 
                   {pendingCount > 0 && (
-                    <button type="button" onClick={() => {
-                      const firstPending = order.items.find((item) => item.packagingStatus !== "completed");
-                      if (firstPending) openItem(order, firstPending);
-                    }} className="mt-3 w-full rounded-xl bg-emerald-700 px-4 py-3 font-bold text-white">فتح الطلب وإنجازه</button>
-                  )}
+                      <div className="mt-3 space-y-2">
+                        {order.items
+                          .filter(
+                            (item) => item.packagingStatus !== "completed",
+                          )
+                          .map((item) => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => openItem(order, item)}
+                              className={`block w-full rounded-lg p-3 text-right transition ${
+                                selectedItemId === item.id
+                                  ? "bg-emerald-700 text-white"
+                                  : "bg-gray-50 hover:bg-emerald-50"
+                              }`}
+                            >
+                              <p className="font-semibold">{item.title}</p>
+                              <p className="mt-1 text-sm opacity-80">
+                                {item.contentValue > 0
+                                  ? `قيمة المحتوى: ${item.contentValue.toFixed(
+                                      2,
+                                    )} د.ل`
+                                  : "تأكيد تجهيز البند"}
+                              </p>
+                            </button>
+                          ))}
+                      </div>
+                    )}
                 </div>
               );
             })}
@@ -901,11 +931,10 @@ export default function PackagingEmployee() {
               </div>
             )}
           </div>
-        </section>}
+        </section>
 
-        {selectedOrder && selectedItem && <section className="rounded-2xl bg-white p-5 shadow md:p-6">
-          <button type="button" onClick={() => { setSelectedOrderId(null); setSelectedItemId(null); }} className="mb-5 rounded-xl bg-gray-100 px-4 py-3 font-bold text-gray-700">← رجوع إلى قائمة الطلبات</button>
-          {(!selectedOrder || !selectedItem) ? (
+        <section className="rounded-2xl bg-white p-5 shadow md:p-6">
+          {!selectedOrder || !selectedItem ? (
             <div className="flex min-h-[420px] items-center justify-center text-center text-gray-500">
               اختار طلبًا وبندًا من القائمة لبدء التجهيز
             </div>
@@ -945,30 +974,6 @@ export default function PackagingEmployee() {
                 )}
               </div>
 
-              <div className="mt-5 rounded-2xl border p-4">
-                <p className="mb-3 font-bold">بنود الطلب</p>
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                  {selectedOrder.items.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      disabled={item.packagingStatus === "completed"}
-                      onClick={() => openItem(selectedOrder, item)}
-                      className={`rounded-xl border p-3 text-right font-semibold ${
-                        selectedItem.id === item.id
-                          ? "border-emerald-600 bg-emerald-50 text-emerald-800"
-                          : item.packagingStatus === "completed"
-                            ? "border-green-200 bg-green-50 text-green-700 opacity-70"
-                            : "border-gray-200 bg-white hover:bg-gray-50"
-                      }`}
-                    >
-                      <span className="block">{item.title}</span>
-                      <span className="mt-1 block text-xs">{item.packagingStatus === "completed" ? "✓ تم التجهيز" : "اضغط للتجهيز"}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
               <div className="mt-5 rounded-2xl border border-emerald-100 bg-emerald-50 p-5">
                 <p className="text-sm text-gray-500">البند الحالي</p>
                 <h2 className="mt-1 text-2xl font-bold">
@@ -986,7 +991,81 @@ export default function PackagingEmployee() {
                   بيانات التجهيز
                 </h2>
 
-                {selectedItem.components.length > 0 ? (
+                {isBouquetItem ? (
+                  <>
+                    <div className="mt-4 rounded-2xl border border-rose-100 bg-rose-50 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <h3 className="text-lg font-bold text-rose-900">
+                            🌹 الورد الطبيعي المطلوب
+                          </h3>
+                          <p className="mt-1 text-sm text-rose-700">
+                            نفس الأنواع والألوان والكميات التي اختيرت عند إنشاء الطلب.
+                          </p>
+                        </div>
+
+                        <span className="rounded-full bg-white px-4 py-2 font-bold text-rose-800 shadow-sm">
+                          الإجمالي: {naturalFlowerTotal} وردة
+                        </span>
+                      </div>
+
+                      {naturalFlowerComponents.length > 0 ? (
+                        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                          {naturalFlowerComponents.map((component) => (
+                            <div
+                              key={component.id}
+                              className="flex items-center justify-between rounded-xl border border-rose-100 bg-white p-4"
+                            >
+                              <div>
+                                <p className="font-bold text-gray-900">
+                                  {component.name}
+                                </p>
+                                <p className="mt-1 text-xs text-rose-600">
+                                  ورد طبيعي
+                                </p>
+                              </div>
+
+                              <span className="rounded-full bg-rose-50 px-4 py-2 text-lg font-extrabold text-rose-800">
+                                × {component.quantity}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-800">
+                          لم تُسجل زهور طبيعية لهذا البند. إذا كان الطلب قديمًا قبل آخر إصلاح،
+                          أعد إنشاءه حتى تُحفظ أسماء الورود وألوانها وكمياتها مع الطلب.
+                        </div>
+                      )}
+                    </div>
+
+                    {otherPackagingComponents.length > 0 && (
+                      <div className="mt-5">
+                        <h3 className="font-bold text-gray-800">
+                          مكونات وتجهيزات إضافية
+                        </h3>
+                        <div className="mt-3 space-y-2">
+                          {otherPackagingComponents.map((component) => (
+                            <div
+                              key={component.id}
+                              className="flex items-center justify-between rounded-xl bg-gray-50 p-3"
+                            >
+                              <div>
+                                <p className="font-semibold">{component.name}</p>
+                                <p className="mt-1 text-xs text-gray-500">
+                                  {getSectionLabel(component.section)}
+                                </p>
+                              </div>
+                              <span className="rounded-full bg-white px-3 py-1 font-bold">
+                                × {component.quantity}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : selectedItem.components.length > 0 ? (
                   <div className="mt-4 space-y-2">
                     {selectedItem.components.map((component) => (
                       <div
@@ -1296,7 +1375,7 @@ export default function PackagingEmployee() {
               </button>
             </>
           )}
-        </section>}
+        </section>
       </div>
 
       <section className="rounded-2xl bg-white p-5 shadow md:p-6">
