@@ -241,6 +241,7 @@ export async function updateBuiltOrder(input: {
     .select(`
       id,
       order_number,
+      branch_id,
       is_locked,
       status,
       delivery_driver_name,
@@ -849,6 +850,7 @@ export async function updateBuiltOrder(input: {
         .from("order_items")
         .insert({
           order_id: orderId,
+          branch_id: existingOrder.branch_id,
           item_name: item.title,
           item_type: item.itemType,
           size: "",

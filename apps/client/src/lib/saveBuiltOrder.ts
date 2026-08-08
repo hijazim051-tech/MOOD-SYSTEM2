@@ -235,6 +235,7 @@ export async function saveBuiltOrder(input: {
         .from("order_items")
         .insert({
           order_id: orderData.id,
+          branch_id: branchId,
           item_name: item.title,
           item_type: item.itemType,
           size: "",
