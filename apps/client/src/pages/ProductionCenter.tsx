@@ -448,52 +448,76 @@ export default function ProductionCenter() {
           </Field>
 
           {selectedBoxDetail && (
-            <div className="md:col-span-2 xl:col-span-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="font-bold text-amber-900">
-                    💰 أسعار البوكس المسجلة
-                  </p>
-                  <p className="mt-1 text-sm text-amber-700">
-                    يعرض سعر الشراء وسعر البيع المسجل للبوكس حتى يساعدك في تحديد سعر القالب، بدون تغيير أي سعر تلقائيًا.
-                  </p>
-                </div>
-
-                <div className="grid min-w-[260px] grid-cols-2 gap-3 text-center">
-                  <div className="rounded-xl bg-white p-3 shadow-sm">
-                    <p className="text-xs font-semibold text-gray-500">
-                      سعر الشراء
+            <div className="md:col-span-2 xl:col-span-3 space-y-3">
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <p className="font-bold text-amber-900">
+                      💰 بيانات البوكس المسجلة
                     </p>
-                    <p className="mt-1 text-xl font-extrabold text-amber-900">
-                      {selectedBoxDetail.buyPrice > 0
-                        ? `${selectedBoxDetail.buyPrice.toFixed(2)} د.ل`
-                        : "-"}
+                    <p className="mt-1 text-sm text-amber-700">
+                      هذه البيانات للتذكير فقط حتى تساعدك في تحديد سعر القالب، ولا تغيّر أي سعر تلقائيًا.
                     </p>
                   </div>
 
-                  <div className="rounded-xl bg-white p-3 shadow-sm">
-                    <p className="text-xs font-semibold text-gray-500">
-                      سعر البيع المسجل
-                    </p>
-                    <p className="mt-1 text-xl font-extrabold text-emerald-800">
-                      {selectedBoxDetail.sellPrice > 0
-                        ? `${selectedBoxDetail.sellPrice.toFixed(2)} د.ل`
-                        : "-"}
-                    </p>
-                  </div>
-
-                  {selectedBoxDetail.averageUnitCost > 0 &&
-                    Math.abs(
-                      selectedBoxDetail.averageUnitCost -
-                        selectedBoxDetail.buyPrice
-                    ) > 0.001 && (
-                      <p className="col-span-2 text-xs text-amber-700">
-                        متوسط تكلفة المخزون:{" "}
-                        {selectedBoxDetail.averageUnitCost.toFixed(2)} د.ل
+                  <div className="grid min-w-[360px] grid-cols-3 gap-3 text-center">
+                    <div className="rounded-xl bg-white p-3 shadow-sm">
+                      <p className="text-xs font-semibold text-gray-500">
+                        المخزون الحالي
                       </p>
-                    )}
+                      <p className="mt-1 text-xl font-extrabold text-sky-800">
+                        {selectedBoxDetail.stock}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-white p-3 shadow-sm">
+                      <p className="text-xs font-semibold text-gray-500">
+                        سعر الشراء
+                      </p>
+                      <p className="mt-1 text-xl font-extrabold text-amber-900">
+                        {selectedBoxDetail.buyPrice > 0
+                          ? `${selectedBoxDetail.buyPrice.toFixed(2)} د.ل`
+                          : "-"}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-white p-3 shadow-sm">
+                      <p className="text-xs font-semibold text-gray-500">
+                        سعر البيع المسجل
+                      </p>
+                      <p className="mt-1 text-xl font-extrabold text-emerald-800">
+                        {selectedBoxDetail.sellPrice > 0
+                          ? `${selectedBoxDetail.sellPrice.toFixed(2)} د.ل`
+                          : "-"}
+                      </p>
+                    </div>
+                  </div>
                 </div>
+
+                {selectedBoxDetail.averageUnitCost > 0 &&
+                  Math.abs(
+                    selectedBoxDetail.averageUnitCost -
+                      selectedBoxDetail.buyPrice
+                  ) > 0.001 && (
+                    <p className="mt-3 text-xs text-amber-700">
+                      متوسط تكلفة المخزون:{" "}
+                      {selectedBoxDetail.averageUnitCost.toFixed(2)} د.ل
+                    </p>
+                  )}
               </div>
+
+              {selectedBoxDetail.buyPrice <= 0 &&
+                selectedBoxDetail.sellPrice <= 0 && (
+                  <div className="rounded-2xl border border-yellow-300 bg-yellow-50 p-4 font-semibold text-yellow-900">
+                    ⚠️ لم يتم تسجيل سعر شراء أو سعر بيع لهذا البوكس في المشتريات.
+                  </div>
+                )}
+            </div>
+          )}
+
+          {selectedBoxProduct && !selectedBoxDetailId && (
+            <div className="md:col-span-2 xl:col-span-3 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-blue-900">
+              اختر حجم البوكس حتى تظهر لك بيانات الشراء والبيع والمخزون.
             </div>
           )}
 
