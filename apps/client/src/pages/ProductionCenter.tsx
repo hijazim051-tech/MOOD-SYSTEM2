@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { moveToTrash } from "../lib/trash";
-import { useBranch } from "../context/BranchContext";
-import { getBranchStock } from "../lib/branchStock";
 
 type BoxDetail = {
   id: number;
   name: string;
   stock: number;
+  buyPrice: number;
+  sellPrice: number;
+  averageUnitCost: number;
 };
 
 type BoxProduct = {
@@ -35,7 +36,6 @@ const inputClass =
   "w-full rounded-xl border border-gray-200 bg-white p-3 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
 
 export default function ProductionCenter() {
-  const { effectiveBranchId, selectedBranch } = useBranch();
   const [boxProducts, setBoxProducts] = useState<BoxProduct[]>([]);
   const [templates, setTemplates] = useState<BoxTemplate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,7 +53,7 @@ export default function ProductionCenter() {
 
   useEffect(() => {
     void loadData();
-  }, [effectiveBranchId]);
+  }, []);
 
   const selectedBoxProduct = useMemo(
     () =>
@@ -83,7 +83,7 @@ export default function ProductionCenter() {
     setLoading(true);
 
     try {
-      const [productsResult, templatesResult, branchRows] = await Promise.all([
+      const [productsResult, templatesResult] = await Promise.all([
         supabase
           .from("products")
           .select(`
@@ -94,7 +94,10 @@ export default function ProductionCenter() {
             product_details (
               id,
               name,
-              stock
+              stock,
+              buy_price,
+              sell_price,
+              average_unit_cost
             )
           `)
           .or("category_id.eq.88,product_type.eq.box")
@@ -118,13 +121,11 @@ export default function ProductionCenter() {
           `)
           .eq("item_type", "box")
           .order("created_at", { ascending: false }),
-        getBranchStock(effectiveBranchId),
       ]);
 
       if (productsResult.error) throw productsResult.error;
       if (templatesResult.error) throw templatesResult.error;
 
-      const branchStockMap = new Map(branchRows.map((row) => [row.productDetailId, row.stock]));
       setBoxProducts(
         (productsResult.data || []).map((product: any) => ({
           id: Number(product.id),
@@ -132,7 +133,10 @@ export default function ProductionCenter() {
           details: (product.product_details || []).map((detail: any) => ({
             id: Number(detail.id),
             name: String(detail.name || ""),
-            stock: Number(branchStockMap.get(Number(detail.id)) || 0),
+            stock: Number(detail.stock || 0),
+            buyPrice: Number(detail.buy_price || 0),
+            sellPrice: Number(detail.sell_price || detail.unit_sell_price || 0),
+            averageUnitCost: Number(detail.average_unit_cost || 0),
           })),
         }))
       );
@@ -372,7 +376,6 @@ export default function ProductionCenter() {
         <p className="mt-2 text-gray-500">
           إنشاء قوالب البوكسات حسب نوع البوكس والحجم وقيمة المحتوى
         </p>
-        <p className="mt-2 text-sm font-bold text-emerald-700">المخزون المعروض: {selectedBranch?.name || "كل الفروع"}</p>
       </header>
 
       <section className="rounded-2xl bg-white p-5 shadow md:p-6">
@@ -443,6 +446,56 @@ export default function ProductionCenter() {
               ))}
             </select>
           </Field>
+
+          {selectedBoxDetail && (
+            <div className="md:col-span-2 xl:col-span-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="font-bold text-amber-900">
+                    💰 أسعار البوكس المسجلة
+                  </p>
+                  <p className="mt-1 text-sm text-amber-700">
+                    يعرض سعر الشراء وسعر البيع المسجل للبوكس حتى يساعدك في تحديد سعر القالب، بدون تغيير أي سعر تلقائيًا.
+                  </p>
+                </div>
+
+                <div className="grid min-w-[260px] grid-cols-2 gap-3 text-center">
+                  <div className="rounded-xl bg-white p-3 shadow-sm">
+                    <p className="text-xs font-semibold text-gray-500">
+                      سعر الشراء
+                    </p>
+                    <p className="mt-1 text-xl font-extrabold text-amber-900">
+                      {selectedBoxDetail.buyPrice > 0
+                        ? `${selectedBoxDetail.buyPrice.toFixed(2)} د.ل`
+                        : "-"}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl bg-white p-3 shadow-sm">
+                    <p className="text-xs font-semibold text-gray-500">
+                      سعر البيع المسجل
+                    </p>
+                    <p className="mt-1 text-xl font-extrabold text-emerald-800">
+                      {selectedBoxDetail.sellPrice > 0
+                        ? `${selectedBoxDetail.sellPrice.toFixed(2)} د.ل`
+                        : "-"}
+                    </p>
+                  </div>
+
+                  {selectedBoxDetail.averageUnitCost > 0 &&
+                    Math.abs(
+                      selectedBoxDetail.averageUnitCost -
+                        selectedBoxDetail.buyPrice
+                    ) > 0.001 && (
+                      <p className="col-span-2 text-xs text-amber-700">
+                        متوسط تكلفة المخزون:{" "}
+                        {selectedBoxDetail.averageUnitCost.toFixed(2)} د.ل
+                      </p>
+                    )}
+                </div>
+              </div>
+            </div>
+          )}
 
           <Field label="قيمة المحتوى">
             <input
