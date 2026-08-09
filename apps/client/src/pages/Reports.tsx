@@ -1,8 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { useBranch } from "../context/BranchContext";
-import OfferReportPanel from "../components/OfferReportPanel";
-import { downloadExcelHtml, printHtmlReport } from "../lib/reportExport";
 
 type PeriodKey =
   | "today"
@@ -13,9 +10,17 @@ type PeriodKey =
   | "custom"
   | "all";
 
+type ReportItem = {
+  id: string | number;
+  itemType: string;
+  title: string;
+  sellPrice: number;
+  costPrice: number;
+  profit: number;
+};
+
 type ReportOrder = {
   id: number;
-  branchId: string;
   orderNumber: string;
   total: number;
   productsTotal: number;
@@ -29,58 +34,11 @@ type ReportOrder = {
   paymentMethod: string;
   status: string;
   createdAt: string;
-};
-
-type ExpenseRecord = {
-  id: string;
-  branchId: string;
-  expenseDate: string;
-  categoryName: string;
-  expenseType: string;
-  accountingType: "asset" | "operating" | "liability";
-  paidAmount: number;
-  amount: number;
-  paymentMethod: string;
-};
-
-type WasteRecord = {
-  id: string;
-  branchId: string;
-  wasteDate: string;
-  itemName: string;
-  detailName: string;
-  quantity: number;
-  totalCost: number;
-  reason: string;
-};
-
-type SupplierInvoice = {
-  id: string;
-  branchId: string;
-  supplierId: string;
-  supplierName: string;
-  grandTotal: number;
-  paidAmount: number;
-  deliveryCost: number;
-  invoiceDate: string;
-};
-
-type SupplierPayment = {
-  id: string;
-  branchId: string;
-  supplierId: string;
-  amount: number;
+  items: ReportItem[];
 };
 
 type PaymentSummary = {
   method: string;
-  label: string;
-  amount: number;
-  count: number;
-  percentage: number;
-};
-
-type GroupSummary = {
   label: string;
   amount: number;
   count: number;
@@ -93,10 +51,7 @@ type DailySummary = {
   sales: number;
   productsSales: number;
   cost: number;
-  profitBeforeExpenses: number;
-  expenses: number;
-  waste: number;
-  netProfit: number;
+  profit: number;
   paid: number;
   remaining: number;
 };
@@ -107,7 +62,6 @@ type FinancialSummary = {
   productsSales: number;
   cost: number;
   grossProfit: number;
-  profitBeforeExpenses: number;
   netProfit: number;
   deliveryFees: number;
   deliveryCashExpenses: number;
@@ -117,9 +71,6 @@ type FinancialSummary = {
   averageOrder: number;
   collectionRate: number;
   profitMargin: number;
-  expenses: number;
-  waste: number;
-  supplierDebt: number;
 };
 
 const EMPTY_SUMMARY: FinancialSummary = {
@@ -128,7 +79,6 @@ const EMPTY_SUMMARY: FinancialSummary = {
   productsSales: 0,
   cost: 0,
   grossProfit: 0,
-  profitBeforeExpenses: 0,
   netProfit: 0,
   deliveryFees: 0,
   deliveryCashExpenses: 0,
@@ -138,193 +88,82 @@ const EMPTY_SUMMARY: FinancialSummary = {
   averageOrder: 0,
   collectionRate: 0,
   profitMargin: 0,
-  expenses: 0,
-  waste: 0,
-  supplierDebt: 0,
 };
 
 export default function Reports() {
-  const { effectiveBranchId, branches } = useBranch();
   const [orders, setOrders] = useState<ReportOrder[]>([]);
-  const [allOrders, setAllOrders] = useState<ReportOrder[]>([]);
-  const [allExpenses, setAllExpenses] = useState<ExpenseRecord[]>([]);
-  const [allWaste, setAllWaste] = useState<WasteRecord[]>([]);
-  const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
-  const [waste, setWaste] = useState<WasteRecord[]>([]);
-  const [supplierInvoices, setSupplierInvoices] = useState<SupplierInvoice[]>([]);
-  const [supplierPayments, setSupplierPayments] = useState<SupplierPayment[]>([]);
-
   const [period, setPeriod] = useState<PeriodKey>("month");
   const [loading, setLoading] = useState(true);
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [paymentFilter, setPaymentFilter] = useState("all");
+  const [reportType, setReportType] = useState<"all" | "bouquet" | "box" | "product">("all");
 
   useEffect(() => {
-    void loadReports();
-  }, [effectiveBranchId]);
+    loadReports();
+  }, []);
 
   async function loadReports() {
     setLoading(true);
 
     try {
-      const [
-        ordersResult,
-        expensesResult,
-        wasteResult,
-        supplierInvoicesResult,
-        supplierPaymentsResult,
-      ] = await Promise.all([
-        supabase
-          .from("orders")
-          .select(`
+      const { data, error } = await supabase
+        .from("orders")
+        .select(`
+          id,
+          order_number,
+          total,
+          products_total,
+          cost_total,
+          profit,
+          delivery_fee,
+          delivery_cash_expense,
+          discount,
+          paid_amount,
+          remaining_amount,
+          payment_method,
+          status,
+          created_at,
+          order_custom_items (
             id,
-            order_number,
-            total,
-            products_total,
-            cost_total,
-            profit,
-            delivery_fee,
-            delivery_cash_expense,
-            discount,
-            paid_amount,
-            remaining_amount,
-            payment_method,
-            status,
-            created_at,
-            branch_id
-          `)
-          .order("created_at", { ascending: false }),
+            item_type,
+            title,
+            sell_price,
+            cost_price,
+            profit
+          )
+        `)
+        .order("created_at", { ascending: false });
 
-        supabase
-          .from("expenses")
-          .select(`
-            id,
-            expense_date,
-            category_name_snapshot,
-            expense_type,
-            accounting_type,
-            paid_amount,
-            amount,
-            payment_method,
-            branch_id
-          `)
-          .order("expense_date", { ascending: false }),
+      if (error) throw error;
 
-        supabase
-          .from("stock_waste")
-          .select(`
-            id,
-            waste_date,
-            item_name_snapshot,
-            detail_name_snapshot,
-            quantity,
-            total_cost,
-            reason,
-            branch_id
-          `)
-          .order("waste_date", { ascending: false }),
+      const formatted: ReportOrder[] = (data || []).map((order: any) => ({
+        id: Number(order.id),
+        orderNumber: String(order.order_number || order.id || ""),
+        total: Number(order.total || 0),
+        productsTotal: Number(order.products_total || 0),
+        costTotal: Number(order.cost_total || 0),
+        profit: Number(order.profit || 0),
+        deliveryFee: Number(order.delivery_fee || 0),
+        deliveryCashExpense: Number(order.delivery_cash_expense || 0),
+        discount: Number(order.discount || 0),
+        paidAmount: Number(order.paid_amount || 0),
+        remainingAmount: Number(order.remaining_amount || 0),
+        paymentMethod: String(order.payment_method || "cash"),
+        status: String(order.status || "new"),
+        createdAt: String(order.created_at || ""),
+        items: (order.order_custom_items || []).map((item: any) => ({
+          id: item.id,
+          itemType: String(item.item_type || "product"),
+          title: String(item.title || ""),
+          sellPrice: Number(item.sell_price || 0),
+          costPrice: Number(item.cost_price || 0),
+          profit: Number(item.profit || 0),
+        })),
+      }));
 
-        supabase
-          .from("purchase_invoices")
-          .select(`
-            id,
-            supplier_id,
-            supplier_name_snapshot,
-            grand_total,
-            paid_amount,
-            delivery_cost,
-            invoice_date,
-            branch_id
-          `),
-
-        supabase
-          .from("supplier_payments")
-          .select(`
-            id,
-            supplier_id,
-            amount,
-            branch_id
-          `),
-      ]);
-
-      if (ordersResult.error) throw ordersResult.error;
-      if (expensesResult.error) throw expensesResult.error;
-      if (wasteResult.error) throw wasteResult.error;
-      if (supplierInvoicesResult.error) throw supplierInvoicesResult.error;
-      if (supplierPaymentsResult.error) throw supplierPaymentsResult.error;
-
-      const mappedOrders: ReportOrder[] = (ordersResult.data || []).map((order: any) => ({
-          id: Number(order.id),
-          branchId: String(order.branch_id || ""),
-          orderNumber: String(order.order_number || order.id || ""),
-          total: Number(order.total || 0),
-          productsTotal: Number(order.products_total || 0),
-          costTotal: Number(order.cost_total || 0),
-          profit: Number(order.profit || 0),
-          deliveryFee: Number(order.delivery_fee || 0),
-          deliveryCashExpense: Number(order.delivery_cash_expense || 0),
-          discount: Number(order.discount || 0),
-          paidAmount: Number(order.paid_amount || 0),
-          remainingAmount: Number(order.remaining_amount || 0),
-          paymentMethod: String(order.payment_method || "cash"),
-          status: String(order.status || "new"),
-          createdAt: String(order.created_at || ""),
-        }));
-      setAllOrders(mappedOrders);
-      setOrders(effectiveBranchId ? mappedOrders.filter((order) => order.branchId === effectiveBranchId) : mappedOrders);
-
-      const mappedExpenses: ExpenseRecord[] = (expensesResult.data || []).map((expense: any) => ({
-          id: String(expense.id),
-          branchId: String(expense.branch_id || ""),
-          expenseDate: String(expense.expense_date || ""),
-          categoryName: String(
-            expense.category_name_snapshot || "مصروفات أخرى"
-          ),
-          expenseType: String(expense.expense_type || "variable"),
-          accountingType: String(expense.accounting_type || "operating") as ExpenseRecord["accountingType"],
-          paidAmount: Number(expense.paid_amount ?? expense.amount ?? 0),
-          amount: Number(expense.amount || 0),
-          paymentMethod: String(expense.payment_method || "cash"),
-        }));
-      setAllExpenses(mappedExpenses);
-      setExpenses(effectiveBranchId ? mappedExpenses.filter((expense) => expense.branchId === effectiveBranchId) : mappedExpenses);
-
-      const mappedWaste: WasteRecord[] = (wasteResult.data || []).map((record: any) => ({
-          id: String(record.id),
-          branchId: String(record.branch_id || ""),
-          wasteDate: String(record.waste_date || ""),
-          itemName: String(record.item_name_snapshot || ""),
-          detailName: String(record.detail_name_snapshot || ""),
-          quantity: Number(record.quantity || 0),
-          totalCost: Number(record.total_cost || 0),
-          reason: String(record.reason || "أخرى"),
-        }));
-      setAllWaste(mappedWaste);
-      setWaste(effectiveBranchId ? mappedWaste.filter((record) => record.branchId === effectiveBranchId) : mappedWaste);
-
-      setSupplierInvoices(
-        (supplierInvoicesResult.data || []).map((invoice: any) => ({
-          id: String(invoice.id),
-          branchId: String(invoice.branch_id || ""),
-          supplierId: String(invoice.supplier_id || ""),
-          supplierName: String(invoice.supplier_name_snapshot || "بدون اسم"),
-          grandTotal: Number(invoice.grand_total || 0),
-          paidAmount: Number(invoice.paid_amount || 0),
-          deliveryCost: Number(invoice.delivery_cost || 0),
-          invoiceDate: String(invoice.invoice_date || ""),
-        })).filter((invoice) => !effectiveBranchId || invoice.branchId === effectiveBranchId)
-      );
-
-      setSupplierPayments(
-        (supplierPaymentsResult.data || []).map((payment: any) => ({
-          id: String(payment.id),
-          branchId: String(payment.branch_id || ""),
-          supplierId: String(payment.supplier_id || ""),
-          amount: Number(payment.amount || 0),
-        })).filter((payment) => !effectiveBranchId || payment.branchId === effectiveBranchId)
-      );
+      setOrders(formatted);
     } catch (error: unknown) {
       alert(getErrorMessage(error));
     } finally {
@@ -332,34 +171,9 @@ export default function Reports() {
     }
   }
 
-  const dateFilteredOrders = useMemo(
-    () => filterByPeriod(orders, period, customFrom, customTo, (item) => item.createdAt),
-    [orders, period, customFrom, customTo]
-  );
-
-  const filteredExpenses = useMemo(
-    () =>
-      filterByPeriod(
-        expenses,
-        period,
-        customFrom,
-        customTo,
-        (item) => `${item.expenseDate}T12:00:00`
-      ),
-    [expenses, period, customFrom, customTo]
-  );
-
-  const filteredWaste = useMemo(
-    () =>
-      filterByPeriod(
-        waste,
-        period,
-        customFrom,
-        customTo,
-        (item) => `${item.wasteDate}T12:00:00`
-      ),
-    [waste, period, customFrom, customTo]
-  );
+  const dateFilteredOrders = useMemo(() => {
+    return filterOrdersByPeriod(orders, period, customFrom, customTo);
+  }, [orders, period, customFrom, customTo]);
 
   const filteredOrders = useMemo(() => {
     return dateFilteredOrders.filter((order) => {
@@ -382,54 +196,9 @@ export default function Reports() {
     [filteredOrders]
   );
 
-  const totalExpenses = useMemo(
-    () => filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0),
-    [filteredExpenses]
-  );
-
-  const purchaseDeliveryCost = useMemo(() =>
-    filterByPeriod(supplierInvoices, period, customFrom, customTo, (item) => item.invoiceDate)
-      .reduce((sum, invoice) => sum + invoice.deliveryCost, 0),
-    [supplierInvoices, period, customFrom, customTo]
-  );
-
-  const accountingSummary = useMemo(() => ({
-    assets: filteredExpenses.filter((x) => x.accountingType === "asset").reduce((s, x) => s + x.amount, 0),
-    operating: filteredExpenses.filter((x) => x.accountingType === "operating").reduce((s, x) => s + x.amount, 0),
-    liabilities: filteredExpenses.filter((x) => x.accountingType === "liability").reduce((s, x) => s + Math.max(x.amount - x.paidAmount, 0), 0),
-  }), [filteredExpenses]);
-
-  const totalWaste = useMemo(
-    () => filteredWaste.reduce((sum, record) => sum + record.totalCost, 0),
-    [filteredWaste]
-  );
-
-  const supplierDebt = useMemo(() => {
-    const totalPurchases = supplierInvoices.reduce(
-      (sum, invoice) => sum + invoice.grandTotal,
-      0
-    );
-    const paidInsideInvoices = supplierInvoices.reduce(
-      (sum, invoice) => sum + invoice.paidAmount,
-      0
-    );
-    const laterPayments = supplierPayments.reduce(
-      (sum, payment) => sum + payment.amount,
-      0
-    );
-
-    return Math.max(totalPurchases - paidInsideInvoices - laterPayments, 0);
-  }, [supplierInvoices, supplierPayments]);
-
   const summary = useMemo(
-    () =>
-      calculateFinancialSummary(
-        completedOrders,
-        totalExpenses,
-        totalWaste,
-        supplierDebt
-      ),
-    [completedOrders, totalExpenses, totalWaste, supplierDebt]
+    () => calculateFinancialSummary(completedOrders),
+    [completedOrders]
   );
 
   const paymentSummary = useMemo<PaymentSummary[]>(() => {
@@ -455,115 +224,18 @@ export default function Reports() {
       }
     }
 
-    return addPercentages(
-      Array.from(map.values()).map((item) => ({
-        ...item,
-        percentage: 0,
-      }))
-    ).sort((a, b) => b.amount - a.amount);
-  }, [completedOrders]);
+    const totalPaid = Array.from(map.values()).reduce(
+      (sum, item) => sum + item.amount,
+      0
+    );
 
-  const expenseSummary = useMemo<GroupSummary[]>(() => {
-    const map = new Map<string, { label: string; amount: number; count: number }>();
-
-    for (const expense of filteredExpenses) {
-      const label = expense.categoryName || "مصروفات أخرى";
-      const current = map.get(label);
-
-      if (current) {
-        current.amount += expense.amount;
-        current.count += 1;
-      } else {
-        map.set(label, { label, amount: expense.amount, count: 1 });
-      }
-    }
-
-    return addPercentages(
-      Array.from(map.values()).map((item) => ({
-        ...item,
-        percentage: 0,
-      }))
-    ).sort((a, b) => b.amount - a.amount);
-  }, [filteredExpenses]);
-
-  const wasteSummary = useMemo<GroupSummary[]>(() => {
-    const map = new Map<string, { label: string; amount: number; count: number }>();
-
-    for (const record of filteredWaste) {
-      const label =
-        [record.itemName, record.detailName].filter(Boolean).join(" — ") ||
-        "عنصر غير محدد";
-      const current = map.get(label);
-
-      if (current) {
-        current.amount += record.totalCost;
-        current.count += record.quantity;
-      } else {
-        map.set(label, {
-          label,
-          amount: record.totalCost,
-          count: record.quantity,
-        });
-      }
-    }
-
-    return addPercentages(
-      Array.from(map.values()).map((item) => ({
-        ...item,
-        percentage: 0,
-      }))
-    ).sort((a, b) => b.amount - a.amount);
-  }, [filteredWaste]);
-
-  const supplierDebtSummary = useMemo<GroupSummary[]>(() => {
-    const map = new Map<
-      string,
-      {
-        label: string;
-        supplierId: string;
-        amount: number;
-        count: number;
-        paidInsideInvoices: number;
-      }
-    >();
-
-    for (const invoice of supplierInvoices) {
-      const key = invoice.supplierId || invoice.supplierName;
-      const current = map.get(key);
-
-      if (current) {
-        current.amount += invoice.grandTotal;
-        current.paidInsideInvoices += invoice.paidAmount;
-        current.count += 1;
-      } else {
-        map.set(key, {
-          label: invoice.supplierName,
-          supplierId: invoice.supplierId,
-          amount: invoice.grandTotal,
-          paidInsideInvoices: invoice.paidAmount,
-          count: 1,
-        });
-      }
-    }
-
-    for (const payment of supplierPayments) {
-      const entry = Array.from(map.values()).find(
-        (item) => item.supplierId === payment.supplierId
-      );
-      if (entry) entry.paidInsideInvoices += payment.amount;
-    }
-
-    const result = Array.from(map.values())
+    return Array.from(map.values())
       .map((item) => ({
-        label: item.label,
-        amount: Math.max(item.amount - item.paidInsideInvoices, 0),
-        count: item.count,
-        percentage: 0,
+        ...item,
+        percentage: totalPaid > 0 ? (item.amount / totalPaid) * 100 : 0,
       }))
-      .filter((item) => item.amount > 0);
-
-    return addPercentages(result).sort((a, b) => b.amount - a.amount);
-  }, [supplierInvoices, supplierPayments]);
+      .sort((a, b) => b.amount - a.amount);
+  }, [completedOrders]);
 
   const dailySummary = useMemo<DailySummary[]>(() => {
     const map = new Map<string, DailySummary>();
@@ -571,14 +243,14 @@ export default function Reports() {
     for (const order of completedOrders) {
       const key = toLocalDateKey(new Date(order.createdAt));
       const current = map.get(key);
-      const orderProfit = getOrderProfitBeforeExpenses(order);
+      const profit = getOrderNetProfit(order);
 
       if (current) {
         current.orders += 1;
         current.sales += order.total;
         current.productsSales += order.productsTotal;
         current.cost += order.costTotal;
-        current.profitBeforeExpenses += orderProfit;
+        current.profit += profit;
         current.paid += order.paidAmount;
         current.remaining += order.remainingAmount;
       } else {
@@ -588,71 +260,17 @@ export default function Reports() {
           sales: order.total,
           productsSales: order.productsTotal,
           cost: order.costTotal,
-          profitBeforeExpenses: orderProfit,
-          expenses: 0,
-          waste: 0,
-          netProfit: orderProfit,
+          profit,
           paid: order.paidAmount,
           remaining: order.remainingAmount,
         });
       }
     }
 
-    for (const expense of filteredExpenses) {
-      const key = expense.expenseDate;
-      const current = map.get(key);
-
-      if (current) {
-        current.expenses += expense.amount;
-      } else {
-        map.set(key, {
-          date: key,
-          orders: 0,
-          sales: 0,
-          productsSales: 0,
-          cost: 0,
-          profitBeforeExpenses: 0,
-          expenses: expense.amount,
-          waste: 0,
-          netProfit: 0,
-          paid: 0,
-          remaining: 0,
-        });
-      }
-    }
-
-    for (const record of filteredWaste) {
-      const key = record.wasteDate;
-      const current = map.get(key);
-
-      if (current) {
-        current.waste += record.totalCost;
-      } else {
-        map.set(key, {
-          date: key,
-          orders: 0,
-          sales: 0,
-          productsSales: 0,
-          cost: 0,
-          profitBeforeExpenses: 0,
-          expenses: 0,
-          waste: record.totalCost,
-          netProfit: 0,
-          paid: 0,
-          remaining: 0,
-        });
-      }
-    }
-
-    for (const value of map.values()) {
-      value.netProfit =
-        value.profitBeforeExpenses - value.expenses - value.waste;
-    }
-
     return Array.from(map.values()).sort((a, b) =>
       a.date.localeCompare(b.date)
     );
-  }, [completedOrders, filteredExpenses, filteredWaste]);
+  }, [completedOrders]);
 
   const maxDailySales = useMemo(
     () => Math.max(1, ...dailySummary.map((day) => day.sales)),
@@ -679,28 +297,20 @@ export default function Reports() {
     [orders]
   );
 
-  const branchComparison = useMemo(() => {
-    if (effectiveBranchId || branches.length < 2) return [];
-
-    return branches.map((branch) => {
-      const branchOrders = filterByPeriod(
-        allOrders.filter((order) => order.branchId === branch.id && normalizeStatus(order.status) !== "cancelled"),
-        period, customFrom, customTo, (item) => item.createdAt
-      );
-      const branchExpenses = filterByPeriod(
-        allExpenses.filter((expense) => expense.branchId === branch.id),
-        period, customFrom, customTo, (item) => `${item.expenseDate}T12:00:00`
-      );
-      const branchWaste = filterByPeriod(
-        allWaste.filter((record) => record.branchId === branch.id),
-        period, customFrom, customTo, (item) => `${item.wasteDate}T12:00:00`
-      );
-      const expensesTotal = branchExpenses.reduce((sum, item) => sum + item.amount, 0);
-      const wasteTotal = branchWaste.reduce((sum, item) => sum + item.totalCost, 0);
-      const result = calculateFinancialSummary(branchOrders, expensesTotal, wasteTotal, 0);
-      return { branchId: branch.id, branchName: branch.name, ...result };
-    }).sort((a, b) => b.sales - a.sales);
-  }, [effectiveBranchId, branches, allOrders, allExpenses, allWaste, period, customFrom, customTo]);
+  const itemReport = useMemo(() => {
+    const rows = completedOrders.flatMap((order) =>
+      order.items.map((item) => ({ ...item, orderId: order.id }))
+    );
+    const filtered = reportType === "all"
+      ? rows
+      : rows.filter((item) => normalizeItemType(item.itemType) === reportType);
+    const sales = filtered.reduce((sum, item) => sum + item.sellPrice, 0);
+    const cost = filtered.reduce((sum, item) => sum + item.costPrice, 0);
+    const profit = filtered.reduce((sum, item) =>
+      sum + (item.profit || item.sellPrice - item.costPrice), 0);
+    const ordersCount = new Set(filtered.map((item) => item.orderId)).size;
+    return { rows: filtered, sales, cost, profit, ordersCount };
+  }, [completedOrders, reportType]);
 
   function exportCsv() {
     const headers = [
@@ -711,7 +321,7 @@ export default function Reports() {
       "إجمالي الطلب",
       "مبيعات المنتجات",
       "التكلفة",
-      "ربح الطلب قبل المصروفات",
+      "الربح",
       "التوصيل",
       "مصروف التوصيل النقدي",
       "الخصم",
@@ -727,19 +337,13 @@ export default function Reports() {
       order.total.toFixed(2),
       order.productsTotal.toFixed(2),
       order.costTotal.toFixed(2),
-      getOrderProfitBeforeExpenses(order).toFixed(2),
+      getOrderNetProfit(order).toFixed(2),
       order.deliveryFee.toFixed(2),
       order.deliveryCashExpense.toFixed(2),
       order.discount.toFixed(2),
       order.paidAmount.toFixed(2),
       order.remainingAmount.toFixed(2),
     ]);
-
-    rows.push([]);
-    rows.push(["إجمالي المصروفات", totalExpenses.toFixed(2)]);
-    rows.push(["إجمالي التوالف", totalWaste.toFixed(2)]);
-    rows.push(["صافي الربح الحقيقي", summary.netProfit.toFixed(2)]);
-    rows.push(["ديون الموردين الحالية", supplierDebt.toFixed(2)]);
 
     const csv = [headers, ...rows]
       .map((row) =>
@@ -761,68 +365,6 @@ export default function Reports() {
     URL.revokeObjectURL(url);
   }
 
-
-  function exportExcel() {
-    const headers = [
-      "رقم الطلب", "التاريخ", "الحالة", "طريقة الدفع", "الإجمالي",
-      "مبيعات المنتجات", "التكلفة", "الربح", "المدفوع", "المتبقي"
-    ];
-    const rows = filteredOrders.map((order) => [
-      order.orderNumber,
-      formatDateTime(order.createdAt),
-      getStatusLabel(normalizeStatus(order.status)),
-      getPaymentLabel(normalizePaymentMethod(order.paymentMethod)),
-      order.total.toFixed(2),
-      order.productsTotal.toFixed(2),
-      order.costTotal.toFixed(2),
-      getOrderProfitBeforeExpenses(order).toFixed(2),
-      order.paidAmount.toFixed(2),
-      order.remainingAmount.toFixed(2),
-    ]);
-    downloadExcelHtml({
-      filename: `mood-report-${new Date().toISOString().slice(0, 10)}.xls`,
-      title: "تقرير MOOD المالي",
-      headers,
-      rows,
-      summaryRows: [
-        ["عدد الطلبات", summary.ordersCount],
-        ["إجمالي المبيعات", summary.sales.toFixed(2)],
-        ["إجمالي المصروفات", summary.expenses.toFixed(2)],
-        ["إجمالي الهالك", summary.waste.toFixed(2)],
-        ["صافي الربح", summary.netProfit.toFixed(2)],
-        ["ديون الموردين", summary.supplierDebt.toFixed(2)],
-      ],
-    });
-  }
-
-  function printPdfReport() {
-    const rows = filteredOrders.slice(0, 500).map((order) => `
-      <tr>
-        <td>${order.orderNumber}</td>
-        <td>${formatDateTime(order.createdAt)}</td>
-        <td>${getStatusLabel(normalizeStatus(order.status))}</td>
-        <td>${order.total.toFixed(2)}</td>
-        <td>${getOrderProfitBeforeExpenses(order).toFixed(2)}</td>
-        <td>${order.paidAmount.toFixed(2)}</td>
-        <td>${order.remainingAmount.toFixed(2)}</td>
-      </tr>`).join("");
-    printHtmlReport({
-      title: "التقرير المالي الشامل — MOOD",
-      subtitle: `تاريخ الإصدار: ${new Date().toLocaleString("ar-LY")}`,
-      bodyHtml: `
-        <div class="summary">
-          <div class="card">المبيعات<strong>${summary.sales.toFixed(2)} د.ل</strong></div>
-          <div class="card">صافي الربح<strong>${summary.netProfit.toFixed(2)} د.ل</strong></div>
-          <div class="card">عدد الطلبات<strong>${summary.ordersCount}</strong></div>
-          <div class="card">المصروفات<strong>${summary.expenses.toFixed(2)} د.ل</strong></div>
-          <div class="card">الهالك<strong>${summary.waste.toFixed(2)} د.ل</strong></div>
-          <div class="card">ديون الموردين<strong>${summary.supplierDebt.toFixed(2)} د.ل</strong></div>
-        </div>
-        <table><thead><tr><th>الطلب</th><th>التاريخ</th><th>الحالة</th><th>الإجمالي</th><th>الربح</th><th>المدفوع</th><th>المتبقي</th></tr></thead><tbody>${rows}</tbody></table>
-      `,
-    });
-  }
-
   if (loading) {
     return (
       <div className="p-8 text-2xl font-bold text-gray-700">
@@ -835,18 +377,16 @@ export default function Reports() {
     <div className="space-y-7 p-4 md:p-8" dir="rtl">
       <header className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
         <div>
-          <h1 className="text-3xl font-bold md:text-4xl">
-            التقارير المالية الشاملة
-          </h1>
+          <h1 className="text-3xl font-bold md:text-4xl">التقارير الاحترافية</h1>
           <p className="mt-1 text-gray-500">
-            المبيعات، التكلفة، المصروفات، التوالف وصافي الربح الحقيقي
+            المبيعات، الأرباح، التحصيل، طرق الدفع والتوصيل
           </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => void loadReports()}
+            onClick={loadReports}
             className="rounded-xl bg-emerald-700 px-5 py-3 font-bold text-white"
           >
             تحديث
@@ -862,26 +402,10 @@ export default function Reports() {
 
           <button
             type="button"
-            onClick={exportExcel}
-            className="rounded-xl bg-emerald-600 px-5 py-3 font-bold text-white"
-          >
-            تصدير Excel
-          </button>
-
-          <button
-            type="button"
-            onClick={printPdfReport}
-            className="rounded-xl bg-rose-700 px-5 py-3 font-bold text-white"
-          >
-            حفظ PDF / طباعة
-          </button>
-
-          <button
-            type="button"
             onClick={() => window.print()}
             className="rounded-xl bg-gray-800 px-5 py-3 font-bold text-white"
           >
-            طباعة الصفحة
+            طباعة التقرير
           </button>
         </div>
       </header>
@@ -904,7 +428,7 @@ export default function Reports() {
               <input
                 type="date"
                 value={customFrom}
-                onChange={(event) => setCustomFrom(event.target.value)}
+                onChange={(e) => setCustomFrom(e.target.value)}
                 className="w-full rounded-xl border p-3"
               />
             </label>
@@ -914,7 +438,7 @@ export default function Reports() {
               <input
                 type="date"
                 value={customTo}
-                onChange={(event) => setCustomTo(event.target.value)}
+                onChange={(e) => setCustomTo(e.target.value)}
                 className="w-full rounded-xl border p-3"
               />
             </label>
@@ -924,7 +448,7 @@ export default function Reports() {
         <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
           <select
             value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value)}
+            onChange={(e) => setStatusFilter(e.target.value)}
             className="rounded-xl border p-3"
           >
             <option value="all">كل حالات الطلبات</option>
@@ -937,7 +461,7 @@ export default function Reports() {
 
           <select
             value={paymentFilter}
-            onChange={(event) => setPaymentFilter(event.target.value)}
+            onChange={(e) => setPaymentFilter(e.target.value)}
             className="rounded-xl border p-3"
           >
             <option value="all">كل طرق الدفع</option>
@@ -950,151 +474,148 @@ export default function Reports() {
         </div>
       </section>
 
-      <OfferReportPanel />
-
-      {branchComparison.length > 1 && (
-        <section className="rounded-2xl bg-white p-6 shadow">
-          <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-2xl font-bold">مقارنة الفروع</h2>
-              <p className="mt-1 text-sm text-gray-500">مقارنة MOOD وAlpha حسب الفترة المختارة</p>
-            </div>
-            <span className="rounded-full bg-amber-100 px-4 py-2 font-bold text-amber-800">المتصدر: {branchComparison[0]?.branchName}</span>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[850px] text-right">
-              <thead className="bg-gray-900 text-white"><tr><th className="p-3">الفرع</th><th className="p-3">المبيعات</th><th className="p-3">صافي الربح</th><th className="p-3">الطلبات</th><th className="p-3">متوسط الطلب</th><th className="p-3">المصروفات</th><th className="p-3">الهالك</th><th className="p-3">هامش الربح</th></tr></thead>
-              <tbody>{branchComparison.map((item, index) => (
-                <tr key={item.branchId} className="border-b last:border-0">
-                  <td className="p-3 font-bold">{index === 0 ? "🏆 " : ""}{item.branchName}</td>
-                  <td className="p-3 font-semibold text-emerald-700">{money(item.sales)}</td>
-                  <td className={`p-3 font-semibold ${item.netProfit >= 0 ? "text-blue-700" : "text-red-700"}`}>{money(item.netProfit)}</td>
-                  <td className="p-3">{item.ordersCount}</td><td className="p-3">{money(item.averageOrder)}</td><td className="p-3 text-red-700">{money(item.expenses)}</td><td className="p-3 text-red-700">{money(item.waste)}</td><td className="p-3">{item.profitMargin.toFixed(1)}%</td>
-                </tr>
-              ))}</tbody>
-            </table>
-          </div>
-        </section>
-      )}
-
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <StatCard label="الأصول المسجلة" value={money(accountingSummary.assets)} valueClass="text-blue-700" />
-        <StatCard label="المصروفات التشغيلية" value={money(accountingSummary.operating)} valueClass="text-red-700" />
-        <StatCard label="الالتزامات المتبقية" value={money(accountingSummary.liabilities)} valueClass="text-amber-700" />
-      </section>
-
-      <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-        <StatCard label="إجمالي المبيعات" value={money(summary.sales)} valueClass="text-emerald-700" />
-        <StatCard label="تكلفة المواد" value={money(summary.cost)} valueClass="text-orange-700" />
-        <StatCard label="إجمالي المصروفات" value={money(summary.expenses)} valueClass="text-red-700" />
-        <StatCard label="تكلفة التوالف" value={money(summary.waste)} valueClass="text-red-700" />
-      </section>
-
-      <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-        <StatCard label="مجمل الربح" value={money(summary.grossProfit)} valueClass="text-indigo-700" />
-        <StatCard label="الربح قبل المصروفات" value={money(summary.profitBeforeExpenses)} valueClass="text-blue-700" />
-        <StatCard label="صافي الربح الحقيقي" value={money(summary.netProfit)} valueClass={summary.netProfit >= 0 ? "text-emerald-700" : "text-red-700"} />
-        <StatCard label="هامش صافي الربح" value={`${summary.profitMargin.toFixed(1)}%`} valueClass="text-blue-700" />
-      </section>
-
-      <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-        <StatCard label="عدد الطلبات" value={summary.ordersCount} valueClass="text-purple-700" />
-        <StatCard label="متوسط الطلب" value={money(summary.averageOrder)} valueClass="text-gray-800" />
-        <StatCard label="المدفوع" value={money(summary.paid)} valueClass="text-green-700" />
-        <StatCard label="المتبقي من العملاء" value={money(summary.remaining)} valueClass="text-red-700" />
-      </section>
-
-      <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-        <StatCard label="نسبة التحصيل" value={`${summary.collectionRate.toFixed(1)}%`} valueClass="text-cyan-700" />
-        <StatCard label="الخصومات" value={money(summary.discounts)} valueClass="text-orange-700" />
-        <StatCard label="مصاريف توصيل طلبات العملاء" value={money(summary.deliveryCashExpenses)} valueClass="text-red-700" />
-        <StatCard label="ديون الموردين الحالية" value={money(summary.supplierDebt)} valueClass="text-red-700" />
-      </section>
-
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <StatCard label="تكاليف توصيل المشتريات" value={money(purchaseDeliveryCost)} valueClass="text-violet-700" />
-        <div className="rounded-2xl border border-violet-100 bg-violet-50 p-5 text-sm text-violet-900 shadow-sm">
-          <p className="font-black">فصل التوصيل محاسبيًا</p>
-          <p className="mt-2">تكاليف توصيل المشتريات معروضة هنا وحدها، ولا تشمل رسوم أو مصاريف توصيل طلبات العملاء.</p>
+      <section className="rounded-2xl bg-white p-4 shadow">
+        <p className="mb-3 font-bold">فصل التقرير حسب نوع الشغل</p>
+        <div className="flex flex-wrap gap-2">
+          {[
+            ["all", "الكل"],
+            ["bouquet", "🌹 الورد الطبيعي"],
+            ["box", "🎁 البوكسات"],
+            ["product", "📦 المنتجات"],
+          ].map(([value, label]) => (
+            <button key={value} type="button" onClick={() => setReportType(value as typeof reportType)} className={`rounded-xl px-4 py-3 font-bold ${reportType === value ? "bg-emerald-700 text-white" : "bg-gray-100 text-gray-700"}`}>{label}</button>
+          ))}
         </div>
       </section>
 
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <BarList
-          title="المصروفات حسب الفئة"
-          items={expenseSummary}
-          emptyMessage="لا توجد مصروفات في هذه الفترة."
-        />
+      {reportType !== "all" && (
+        <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+          <StatCard label="مبيعات القسم" value={`${itemReport.sales.toFixed(2)} د.ل`} valueClass="text-emerald-700" />
+          <StatCard label="تكلفة القسم" value={`${itemReport.cost.toFixed(2)} د.ل`} valueClass="text-orange-700" />
+          <StatCard label="ربح القسم" value={`${itemReport.profit.toFixed(2)} د.ل`} valueClass="text-blue-700" />
+          <StatCard label="طلبات فيها هذا القسم" value={itemReport.ordersCount} valueClass="text-purple-700" />
+        </section>
+      )}
 
-        <BarList
-          title="طرق الدفع"
-          items={paymentSummary}
-          emptyMessage="لا توجد بيانات دفع في هذه الفترة."
-        />
-
-        <BarList
-          title="أكثر التوالف تكلفة"
-          items={wasteSummary.slice(0, 10)}
-          emptyMessage="لا توجد توالف في هذه الفترة."
-        />
-
-        <BarList
-          title="ديون الموردين"
-          items={supplierDebtSummary.slice(0, 10)}
-          emptyMessage="لا توجد ديون موردين."
-        />
+      <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+        <StatCard label="إجمالي المبيعات" value={`${summary.sales.toFixed(2)} د.ل`} valueClass="text-emerald-700" />
+        <StatCard label="صافي الربح" value={`${summary.netProfit.toFixed(2)} د.ل`} valueClass="text-blue-700" />
+        <StatCard label="عدد الطلبات" value={summary.ordersCount} valueClass="text-purple-700" />
+        <StatCard label="متوسط الطلب" value={`${summary.averageOrder.toFixed(2)} د.ل`} valueClass="text-gray-800" />
       </section>
 
-      <section className="rounded-2xl bg-white p-6 shadow">
-        <h2 className="mb-5 text-2xl font-bold">المبيعات اليومية</h2>
+      <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+        <StatCard label="مبيعات المنتجات" value={`${summary.productsSales.toFixed(2)} د.ل`} valueClass="text-emerald-700" />
+        <StatCard label="تكلفة المواد" value={`${summary.cost.toFixed(2)} د.ل`} valueClass="text-orange-700" />
+        <StatCard label="مجمل الربح" value={`${summary.grossProfit.toFixed(2)} د.ل`} valueClass="text-indigo-700" />
+        <StatCard label="هامش الربح" value={`${summary.profitMargin.toFixed(1)}%`} valueClass="text-blue-700" />
+      </section>
 
-        {dailySummary.length === 0 ? (
-          <p className="py-8 text-center text-gray-500">
-            لا توجد بيانات في هذه الفترة.
-          </p>
-        ) : (
+      <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+        <StatCard label="المدفوع" value={`${summary.paid.toFixed(2)} د.ل`} valueClass="text-green-700" />
+        <StatCard label="المتبقي" value={`${summary.remaining.toFixed(2)} د.ل`} valueClass="text-red-700" />
+        <StatCard label="نسبة التحصيل" value={`${summary.collectionRate.toFixed(1)}%`} valueClass="text-cyan-700" />
+        <StatCard label="الخصومات" value={`${summary.discounts.toFixed(2)} د.ل`} valueClass="text-orange-700" />
+      </section>
+
+      <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+        <StatCard label="رسوم التوصيل المحصلة" value={`${summary.deliveryFees.toFixed(2)} د.ل`} valueClass="text-sky-700" />
+        <StatCard label="مصاريف التوصيل النقدي" value={`${summary.deliveryCashExpenses.toFixed(2)} د.ل`} valueClass="text-red-700" />
+        <StatCard label="صافي دخل المنتجات" value={`${Math.max(0, summary.productsSales - summary.cost).toFixed(2)} د.ل`} valueClass="text-emerald-700" />
+        <StatCard label="الطلبات الملغاة" value={filteredOrders.filter((o) => normalizeStatus(o.status) === "cancelled").length} valueClass="text-red-700" />
+      </section>
+
+      <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <div className="rounded-2xl bg-white p-6 shadow">
+          <h2 className="mb-5 text-2xl font-bold">المبيعات اليومية</h2>
+
+          {dailySummary.length === 0 ? (
+            <p className="py-8 text-center text-gray-500">
+              لا توجد مبيعات في هذه الفترة.
+            </p>
+          ) : (
+            <div className="space-y-4">
+              {dailySummary.slice(-14).map((day) => {
+                const width = (day.sales / maxDailySales) * 100;
+
+                return (
+                  <div key={day.date}>
+                    <div className="mb-2 flex items-center justify-between text-sm">
+                      <span className="font-semibold">
+                        {new Date(day.date).toLocaleDateString("ar-LY")}
+                      </span>
+                      <span>
+                        {day.sales.toFixed(2)} د.ل — {day.orders} طلب
+                      </span>
+                    </div>
+
+                    <div className="h-3 overflow-hidden rounded-full bg-gray-100">
+                      <div
+                        className="h-full rounded-full bg-emerald-600"
+                        style={{ width: `${Math.max(2, width)}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-2xl bg-white p-6 shadow">
+          <h2 className="mb-5 text-2xl font-bold">طرق الدفع</h2>
+
           <div className="space-y-4">
-            {dailySummary.slice(-14).map((day) => {
-              const width = (day.sales / maxDailySales) * 100;
-
-              return (
-                <div key={day.date}>
-                  <div className="mb-2 flex items-center justify-between text-sm">
-                    <span className="font-semibold">
-                      {new Date(`${day.date}T12:00:00`).toLocaleDateString("ar-LY")}
-                    </span>
-                    <span>
-                      {money(day.sales)} — {day.orders} طلب — صافي {money(day.netProfit)}
-                    </span>
+            {paymentSummary.map((payment) => (
+              <div key={payment.method} className="rounded-xl bg-gray-50 p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-bold">{payment.label}</p>
+                    <p className="mt-1 text-sm text-gray-500">
+                      {payment.count} طلب
+                    </p>
                   </div>
 
-                  <div className="h-3 overflow-hidden rounded-full bg-gray-100">
-                    <div
-                      className="h-full rounded-full bg-emerald-600"
-                      style={{ width: `${Math.max(2, width)}%` }}
-                    />
+                  <div className="text-left">
+                    <p className="text-xl font-bold text-emerald-700">
+                      {payment.amount.toFixed(2)} د.ل
+                    </p>
+                    <p className="text-sm text-gray-500">
+                      {payment.percentage.toFixed(1)}%
+                    </p>
                   </div>
                 </div>
-              );
-            })}
+
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-200">
+                  <div
+                    className="h-full rounded-full bg-emerald-600"
+                    style={{ width: `${payment.percentage}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+
+            {paymentSummary.length === 0 && (
+              <p className="py-8 text-center text-gray-500">
+                لا توجد بيانات دفع في هذه الفترة.
+              </p>
+            )}
           </div>
-        )}
+        </div>
       </section>
 
       <section className="overflow-x-auto rounded-2xl bg-white p-6 shadow">
         <h2 className="mb-5 text-2xl font-bold">التقرير اليومي التفصيلي</h2>
 
-        <table className="w-full min-w-[1250px]">
+        <table className="w-full min-w-[950px]">
           <thead className="bg-gray-100">
             <tr>
               <th className="p-3 text-right">التاريخ</th>
               <th className="p-3 text-right">الطلبات</th>
               <th className="p-3 text-right">المبيعات</th>
+              <th className="p-3 text-right">مبيعات المنتجات</th>
               <th className="p-3 text-right">التكلفة</th>
-              <th className="p-3 text-right">الربح قبل المصروفات</th>
-              <th className="p-3 text-right">المصروفات</th>
-              <th className="p-3 text-right">التوالف</th>
-              <th className="p-3 text-right">صافي الربح</th>
+              <th className="p-3 text-right">الربح</th>
               <th className="p-3 text-right">المدفوع</th>
               <th className="p-3 text-right">المتبقي</th>
             </tr>
@@ -1104,32 +625,28 @@ export default function Reports() {
             {dailySummary.map((day) => (
               <tr key={day.date} className="border-b">
                 <td className="p-3 font-semibold">
-                  {new Date(`${day.date}T12:00:00`).toLocaleDateString("ar-LY")}
+                  {new Date(day.date).toLocaleDateString("ar-LY")}
                 </td>
                 <td className="p-3">{day.orders}</td>
-                <td className="p-3">{money(day.sales)}</td>
-                <td className="p-3">{money(day.cost)}</td>
-                <td className="p-3 text-blue-700">
-                  {money(day.profitBeforeExpenses)}
+                <td className="p-3">{day.sales.toFixed(2)} د.ل</td>
+                <td className="p-3">{day.productsSales.toFixed(2)} د.ل</td>
+                <td className="p-3">{day.cost.toFixed(2)} د.ل</td>
+                <td className="p-3 font-bold text-emerald-700">
+                  {day.profit.toFixed(2)} د.ل
                 </td>
-                <td className="p-3 text-red-700">{money(day.expenses)}</td>
-                <td className="p-3 text-red-700">{money(day.waste)}</td>
-                <td
-                  className={`p-3 font-bold ${
-                    day.netProfit >= 0 ? "text-emerald-700" : "text-red-700"
-                  }`}
-                >
-                  {money(day.netProfit)}
+                <td className="p-3 text-green-700">
+                  {day.paid.toFixed(2)} د.ل
                 </td>
-                <td className="p-3 text-green-700">{money(day.paid)}</td>
-                <td className="p-3 text-red-700">{money(day.remaining)}</td>
+                <td className="p-3 text-red-700">
+                  {day.remaining.toFixed(2)} د.ل
+                </td>
               </tr>
             ))}
 
             {dailySummary.length === 0 && (
               <tr>
-                <td colSpan={10} className="p-10 text-center text-gray-500">
-                  لا توجد بيانات في هذه الفترة.
+                <td colSpan={8} className="p-10 text-center text-gray-500">
+                  لا توجد طلبات في هذه الفترة.
                 </td>
               </tr>
             )}
@@ -1183,77 +700,10 @@ function StatCard({
   );
 }
 
-function BarList({
-  title,
-  items,
-  emptyMessage,
-}: {
-  title: string;
-  items: Array<{
-    label: string;
-    amount: number;
-    count: number;
-    percentage: number;
-  }>;
-  emptyMessage: string;
-}) {
-  return (
-    <div className="rounded-2xl bg-white p-6 shadow">
-      <h2 className="mb-5 text-2xl font-bold">{title}</h2>
-
-      {items.length === 0 ? (
-        <p className="py-8 text-center text-gray-500">{emptyMessage}</p>
-      ) : (
-        <div className="space-y-4">
-          {items.map((item) => (
-            <div key={item.label} className="rounded-xl bg-gray-50 p-4">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="font-bold">{item.label}</p>
-                  <p className="mt-1 text-sm text-gray-500">
-                    {item.count} حركة
-                  </p>
-                </div>
-
-                <div className="text-left">
-                  <p className="text-xl font-bold text-emerald-700">
-                    {money(item.amount)}
-                  </p>
-                  <p className="text-sm text-gray-500">
-                    {item.percentage.toFixed(1)}%
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-200">
-                <div
-                  className="h-full rounded-full bg-emerald-600"
-                  style={{ width: `${item.percentage}%` }}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function calculateFinancialSummary(
-  sourceOrders: ReportOrder[],
-  expenses: number,
-  waste: number,
-  supplierDebt: number
+  sourceOrders: ReportOrder[]
 ): FinancialSummary {
-  if (sourceOrders.length === 0) {
-    return {
-      ...EMPTY_SUMMARY,
-      expenses,
-      waste,
-      supplierDebt,
-      netProfit: -expenses - waste,
-    };
-  }
+  if (sourceOrders.length === 0) return EMPTY_SUMMARY;
 
   const sales = sourceOrders.reduce((sum, order) => sum + order.total, 0);
   const productsSales = sourceOrders.reduce(
@@ -1286,11 +736,10 @@ function calculateFinancialSummary(
   );
 
   const grossProfit = productsSales - cost;
-  const profitBeforeExpenses = sourceOrders.reduce(
-    (sum, order) => sum + getOrderProfitBeforeExpenses(order),
+  const netProfit = sourceOrders.reduce(
+    (sum, order) => sum + getOrderNetProfit(order),
     0
   );
-  const netProfit = profitBeforeExpenses - expenses - waste;
 
   return {
     ordersCount: sourceOrders.length,
@@ -1298,7 +747,6 @@ function calculateFinancialSummary(
     productsSales,
     cost,
     grossProfit,
-    profitBeforeExpenses,
     netProfit,
     deliveryFees,
     deliveryCashExpenses,
@@ -1308,29 +756,25 @@ function calculateFinancialSummary(
     averageOrder: sourceOrders.length > 0 ? sales / sourceOrders.length : 0,
     collectionRate: sales > 0 ? (paid / sales) * 100 : 0,
     profitMargin: productsSales > 0 ? (netProfit / productsSales) * 100 : 0,
-    expenses,
-    waste,
-    supplierDebt,
   };
 }
 
-function filterByPeriod<T>(
-  items: T[],
+function filterOrdersByPeriod(
+  orders: ReportOrder[],
   period: PeriodKey,
   customFrom: string,
-  customTo: string,
-  getDate: (item: T) => string
+  customTo: string
 ) {
-  if (period === "all") return items;
+  if (period === "all") return orders;
 
   if (period === "custom") {
-    if (!customFrom && !customTo) return items;
+    if (!customFrom && !customTo) return orders;
 
     const from = customFrom ? new Date(`${customFrom}T00:00:00`) : null;
     const to = customTo ? new Date(`${customTo}T23:59:59.999`) : null;
 
-    return items.filter((item) => {
-      const date = new Date(getDate(item));
+    return orders.filter((order) => {
+      const date = new Date(order.createdAt);
       if (from && date < from) return false;
       if (to && date > to) return false;
       return true;
@@ -1363,24 +807,13 @@ function filterByPeriod<T>(
     end.setHours(23, 59, 59, 999);
   }
 
-  return items.filter((item) => {
-    const date = new Date(getDate(item));
+  return orders.filter((order) => {
+    const date = new Date(order.createdAt);
     return date >= start && date <= end;
   });
 }
 
-function addPercentages<
-  T extends { amount: number; percentage: number }
->(items: T[]): T[] {
-  const total = items.reduce((sum, item) => sum + item.amount, 0);
-
-  return items.map((item) => ({
-    ...item,
-    percentage: total > 0 ? (item.amount / total) * 100 : 0,
-  }));
-}
-
-function getOrderProfitBeforeExpenses(order: ReportOrder) {
+function getOrderNetProfit(order: ReportOrder) {
   const storedProfit = Number(order.profit || 0);
 
   if (storedProfit !== 0) {
@@ -1388,6 +821,13 @@ function getOrderProfitBeforeExpenses(order: ReportOrder) {
   }
 
   return order.productsTotal - order.costTotal - order.deliveryCashExpense;
+}
+
+function normalizeItemType(itemType: string): "bouquet" | "box" | "product" {
+  const value = String(itemType || "").trim().toLowerCase();
+  if (value.includes("bouquet") || value.includes("باقة")) return "bouquet";
+  if (value.includes("box") || value.includes("بوكس")) return "box";
+  return "product";
 }
 
 function normalizePaymentMethod(method: string) {
@@ -1466,21 +906,9 @@ function formatDateTime(value: string) {
   });
 }
 
-function money(value: number) {
-  return `${Number(value || 0).toFixed(2)} د.ل`;
-}
-
 function getErrorMessage(error: unknown) {
   if (error instanceof Error) {
     return error.message;
-  }
-
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "message" in error
-  ) {
-    return String((error as { message: unknown }).message);
   }
 
   return "حدث خطأ غير متوقع";

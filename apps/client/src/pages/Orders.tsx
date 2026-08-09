@@ -723,6 +723,30 @@ export default function Orders({
     }
   }
 
+
+  async function allocateReservedOrder(order: Order) {
+    if (!window.confirm("تخصيص مخزون هذا الطلب الآن وخصم مكوناته من الفرع؟")) return;
+    setBusyOrderId(order.id);
+    try {
+      const { data, error } = await supabase.rpc("allocate_order_inventory", {
+        p_order_id: order.id,
+      });
+      if (error) throw error;
+      const result = Array.isArray(data) ? data[0] : data;
+      if (result?.success === false) {
+        alert(result?.message || "المخزون غير كافٍ لتخصيص الطلب");
+        return;
+      }
+      alert("تم تخصيص المخزون للطلب وتحويله للتغليف ✅");
+      setSelectedOrder(null);
+      await loadOrders();
+    } catch (error: unknown) {
+      alert(getErrorMessage(error));
+    } finally {
+      setBusyOrderId(null);
+    }
+  }
+
   async function cancelOrder(order: Order) {
     if (order.status === "cancelled") return;
 
@@ -904,6 +928,7 @@ export default function Orders({
           onTransferred={async () => { setSelectedOrder(null); await loadOrders(); }}
           onWhatsApp={() => void openInvoiceWhatsApp(selectedOrder).catch((error) => alert(error instanceof Error ? error.message : "تعذر تجهيز فاتورة PDF"))}
           onMarkReady={() => void markPackagingComplete(selectedOrder)}
+          onAllocateInventory={() => void allocateReservedOrder(selectedOrder)}
           onCustomerCollection={() => openCustomerCollection(selectedOrder)}
           onDriverHandover={() => openDriverDialog(selectedOrder)}
           onEdit={() => void prepareFullEdit(selectedOrder)}
@@ -1292,6 +1317,7 @@ function OrderDetailsDialog({
   onTransferred,
   onWhatsApp,
   onMarkReady,
+  onAllocateInventory,
   onCustomerCollection,
   onDriverHandover,
   onEdit,
@@ -1308,6 +1334,7 @@ function OrderDetailsDialog({
   onTransferred: () => Promise<void>;
   onWhatsApp: () => void;
   onMarkReady: () => void;
+  onAllocateInventory: () => void;
   onCustomerCollection: () => void;
   onDriverHandover: () => void;
   onEdit: () => void;
@@ -1510,7 +1537,15 @@ function OrderDetailsDialog({
         </div>
       </div>
 
+      {order.status === "reserved" && (
+        <div className="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900">
+          <p className="font-bold">📅 طلب مستقبلي — المخزون غير مخصص بعد</p>
+          <p className="mt-1 text-sm">العربون محفوظ عادي، والورد لن يُخصم إلا عند الضغط على تخصيص المخزون.</p>
+        </div>
+      )}
+
       <div className="mt-6 flex flex-wrap justify-end gap-3">
+        {order.status === "reserved" && <button type="button" disabled={busy} onClick={onAllocateInventory} className="rounded-xl bg-amber-600 px-5 py-3 font-semibold text-white disabled:opacity-50">تخصيص المخزون الآن</button>}
         {order.status === "packaging" && packagingSummary.pending > 0 && <button type="button" onClick={onPackaging} className="rounded-xl bg-purple-700 px-5 py-3 font-semibold text-white">فتح التغليف</button>}
         {order.status === "packaging" && <button type="button" disabled={busy} onClick={onMarkReady} className="rounded-xl bg-emerald-700 px-5 py-3 font-semibold text-white disabled:opacity-50">تم التغليف</button>}
         {order.status === "ready" && <button type="button" disabled={busy} onClick={onCustomerCollection} className="rounded-xl bg-green-700 px-5 py-3 font-semibold text-white disabled:opacity-50">استلمه العميل</button>}

@@ -14,6 +14,10 @@ type DashboardOrder = {
   paid_amount: number | null;
   remaining_amount: number | null;
   payment_method: string | null;
+  cash_amount?: number | null;
+  bank_amount?: number | null;
+  transfer_amount?: number | null;
+  balance_amount?: number | null;
   delivery_cash_expense: number | null;
   status: string | null;
   created_at: string;
@@ -42,6 +46,7 @@ type Expense = {
   id: string;
   expense_date: string;
   amount: number | null;
+  payment_method?: string | null;
   branch_id: string | null;
 };
 
@@ -57,7 +62,23 @@ type SupplierInvoice = {
   supplier_id: string | null;
   grand_total: number | null;
   paid_amount: number | null;
+  cash_amount?: number | null;
+  bank_amount?: number | null;
+  transfer_amount?: number | null;
+  balance_amount?: number | null;
   branch_id: string | null;
+};
+
+type ExternalDebt = {
+  id: string;
+  branch_id: string | null;
+  party_name: string;
+  direction: "receivable" | "payable";
+  original_amount: number;
+  paid_amount: number;
+  due_date: string | null;
+  notes: string | null;
+  is_closed: boolean;
 };
 
 type SupplierPayment = {
@@ -85,6 +106,7 @@ export default function Dashboard() {
   const [allWaste, setAllWaste] = useState<Waste[]>([]);
   const [supplierInvoices, setSupplierInvoices] = useState<SupplierInvoice[]>([]);
   const [supplierPayments, setSupplierPayments] = useState<SupplierPayment[]>([]);
+  const [externalDebts, setExternalDebts] = useState<ExternalDebt[]>([]);
   const [backupInfo, setBackupInfo] = useState<BackupInfo>({
     enabled: true,
     reminderDays: 7,
@@ -120,6 +142,7 @@ export default function Dashboard() {
         wasteResult,
         supplierInvoicesResult,
         supplierPaymentsResult,
+        externalDebtsResult,
         settingsData,
       ] = await Promise.all([
         supabase
@@ -135,6 +158,10 @@ export default function Dashboard() {
             paid_amount,
             remaining_amount,
             payment_method,
+            cash_amount,
+            bank_amount,
+            transfer_amount,
+            balance_amount,
             delivery_cash_expense,
             status,
             created_at,
@@ -167,7 +194,7 @@ export default function Dashboard() {
 
         supabase
           .from("expenses")
-          .select("id,expense_date,amount,branch_id")
+          .select("id,expense_date,amount,payment_method,branch_id")
           .order("expense_date", { ascending: false }),
 
         supabase
@@ -177,11 +204,16 @@ export default function Dashboard() {
 
         supabase
           .from("purchase_invoices")
-          .select("id,supplier_id,grand_total,paid_amount,branch_id"),
+          .select("id,supplier_id,grand_total,paid_amount,cash_amount,bank_amount,transfer_amount,balance_amount,branch_id"),
 
         supabase
           .from("supplier_payments")
           .select("id,supplier_id,amount,branch_id"),
+
+        supabase
+          .from("external_debts")
+          .select("id,branch_id,party_name,direction,original_amount,paid_amount,due_date,notes,is_closed")
+          .eq("is_closed", false),
 
         loadSettings(),
       ]);
@@ -193,6 +225,7 @@ export default function Dashboard() {
       if (wasteResult.error) throw wasteResult.error;
       if (supplierInvoicesResult.error) throw supplierInvoicesResult.error;
       if (supplierPaymentsResult.error) throw supplierPaymentsResult.error;
+      if (externalDebtsResult.error) throw externalDebtsResult.error;
 
       const allOrderRows = (ordersResult.data || []) as DashboardOrder[];
       const allExpenseRows = (expensesResult.data || []) as Expense[];
@@ -213,6 +246,7 @@ export default function Dashboard() {
       setWaste(allWasteRows.filter(belongsToSelectedBranch));
       setSupplierInvoices(allInvoiceRows.filter(belongsToSelectedBranch));
       setSupplierPayments(allPaymentRows.filter(belongsToSelectedBranch));
+      setExternalDebts(((externalDebtsResult.data || []) as ExternalDebt[]).filter(belongsToSelectedBranch));
 
       setBackupInfo({
         enabled: settingsData.backup_enabled ?? true,
@@ -388,6 +422,47 @@ export default function Dashboard() {
         .reduce((sum, order) => sum + Number(order.paid_amount || 0), 0),
     [todayOrders]
   );
+
+  const currentBalances = useMemo(() => {
+    const orderCash = activeOrders.reduce((sum, order) => sum + Number(order.cash_amount || 0), 0);
+    const orderBank = activeOrders.reduce((sum, order) => sum + Number(order.bank_amount || 0) + Number(order.transfer_amount || 0), 0);
+    const orderBalance = activeOrders.reduce((sum, order) => sum + Number(order.balance_amount || 0), 0);
+
+    const cashExpenses = expenses.filter((row) => normalizePaymentMethod(row.payment_method || "cash") === "cash").reduce((sum, row) => sum + Number(row.amount || 0), 0);
+    const bankExpenses = expenses.filter((row) => ["bank", "transfer"].includes(normalizePaymentMethod(row.payment_method || ""))).reduce((sum, row) => sum + Number(row.amount || 0), 0);
+
+    const purchaseCash = supplierInvoices.reduce((sum, row) => sum + Number(row.cash_amount || 0), 0);
+    const purchaseBank = supplierInvoices.reduce((sum, row) => sum + Number(row.bank_amount || 0) + Number(row.transfer_amount || 0), 0);
+    const purchaseBalance = supplierInvoices.reduce((sum, row) => sum + Number(row.balance_amount || 0), 0);
+
+    return {
+      cash: orderCash - cashExpenses - purchaseCash,
+      bank: orderBank - bankExpenses - purchaseBank,
+      balance: orderBalance - purchaseBalance,
+    };
+  }, [activeOrders, expenses, supplierInvoices]);
+
+  const externalReceivable = useMemo(() => externalDebts.filter((d) => d.direction === "receivable").reduce((sum, d) => sum + Math.max(Number(d.original_amount || 0) - Number(d.paid_amount || 0), 0), 0), [externalDebts]);
+  const externalPayable = useMemo(() => externalDebts.filter((d) => d.direction === "payable").reduce((sum, d) => sum + Math.max(Number(d.original_amount || 0) - Number(d.paid_amount || 0), 0), 0), [externalDebts]);
+
+  async function addExternalDebt() {
+    const partyName = window.prompt("اسم الشخص أو الجهة:")?.trim();
+    if (!partyName) return;
+    const kind = window.prompt("اكتب 1 إذا نبي منه، أو 2 إذا هو يبي مني:", "1");
+    if (kind !== "1" && kind !== "2") return alert("اختيار غير صحيح");
+    const amount = Number(window.prompt("المبلغ:", "0") || 0);
+    if (!Number.isFinite(amount) || amount <= 0) return alert("المبلغ غير صحيح");
+    const notes = window.prompt("ملاحظات (اختياري):") || "";
+    const { error } = await supabase.from("external_debts").insert({
+      branch_id: effectiveBranchId || null,
+      party_name: partyName,
+      direction: kind === "1" ? "receivable" : "payable",
+      original_amount: amount,
+      notes: notes || null,
+    });
+    if (error) return alert(error.message);
+    await loadDashboard();
+  }
 
   const lowStockProducts = useMemo(() => {
     return products
@@ -703,6 +778,23 @@ export default function Dashboard() {
           </div>
         </section>
       )}
+
+      <section className="rounded-3xl border border-gray-100 bg-white p-5 shadow-sm md:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-2xl font-black text-gray-800">الرصيد الحالي — بدون مدة زمنية</h2>
+            <p className="mt-1 text-sm text-gray-500">يزيد وينقص مع المبيعات والمصروفات والمشتريات، ويمكن أن يظهر بالسالب.</p>
+          </div>
+          <button type="button" onClick={() => void addExternalDebt()} className="rounded-xl bg-gray-900 px-4 py-3 font-bold text-white">+ إضافة دين خارجي</button>
+        </div>
+        <div className="mt-5 grid grid-cols-2 gap-3 xl:grid-cols-5">
+          <MetricCard icon="💵" title="الكاش الحالي" value={money(currentBalances.cash)} tone={currentBalances.cash >= 0 ? "emerald" : "red"} />
+          <MetricCard icon="🏦" title="المصرف الحالي" value={money(currentBalances.bank)} tone={currentBalances.bank >= 0 ? "blue" : "red"} />
+          <MetricCard icon="💳" title="الرصيد الحالي" value={money(currentBalances.balance)} tone={currentBalances.balance >= 0 ? "purple" : "red"} />
+          <MetricCard icon="📈" title="ديون لينا" value={money(externalReceivable)} tone="emerald" />
+          <MetricCard icon="📉" title="ديون علينا" value={money(externalPayable)} tone="red" />
+        </div>
+      </section>
 
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <MetricCard icon="💰" title="مبيعات اليوم" value={money(todaySales)} tone="emerald" trend={salesChange} trendLabel="عن أمس" />

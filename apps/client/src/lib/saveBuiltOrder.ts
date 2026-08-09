@@ -38,6 +38,10 @@ export async function saveBuiltOrder(input: {
 }) {
   const { customer, payment, items, branchId } = input;
 
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const deliveryDate = String(customer.deliveryDate || "");
+  const isFutureOrder = Boolean(deliveryDate && deliveryDate > todayKey);
+
   const requiredByMaterial = new Map<
     number,
     { name: string; quantity: number }
@@ -87,6 +91,7 @@ export async function saveBuiltOrder(input: {
     throw new Error("لا يمكن حفظ الطلب بدون تحديد الفرع");
   }
 
+  if (!isFutureOrder) {
   for (const [productDetailId, required] of requiredByMaterial) {
     const { data, error } = await supabase
       .from("branch_product_stock")
@@ -106,6 +111,8 @@ export async function saveBuiltOrder(input: {
           `المتوفر في الفرع: ${available}`
       );
     }
+  }
+
   }
 
   const totals = calculateOrderTotals(items);
@@ -195,7 +202,13 @@ export async function saveBuiltOrder(input: {
       delivery_cash_expense: deliveryCashExpense,
       total: orderTotal,
       notes: customer.notes || null,
-      status: hasPackagingItems ? "packaging" : "ready",
+      status: isFutureOrder
+        ? "reserved"
+        : hasPackagingItems
+          ? "packaging"
+          : "ready",
+      inventory_allocated: !isFutureOrder,
+      inventory_allocated_at: isFutureOrder ? null : new Date().toISOString(),
       branch_id: branchId || null,
     })
     .select()
@@ -394,6 +407,7 @@ export async function saveBuiltOrder(input: {
    * خصم المكونات المباشرة من المخزون بعد اكتمال الحفظ.
    * ألوان غلاف الباقة لا توجد في requiredByMaterial.
    */
+  if (!isFutureOrder) {
   for (const [productDetailId, required] of requiredByMaterial) {
     const { error: stockError } = await supabase.rpc("adjust_branch_stock", {
       p_branch_id: branchId,
@@ -406,6 +420,8 @@ export async function saveBuiltOrder(input: {
     });
 
     if (stockError) throw stockError;
+  }
+
   }
 
   void sendSystemPush({
