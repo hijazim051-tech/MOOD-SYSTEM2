@@ -41,6 +41,8 @@ type UsagePriceTier = {
   purchaseMax: number | null;
   stock: number;
   averageUnitCost: number;
+  alertLimit: number;
+  sortOrder: number;
 };
 
 type DraftItem = {
@@ -106,8 +108,13 @@ export default function Purchases() {
   const [itemPurchasePrice, setItemPurchasePrice] = useState("");
   const [itemSellPrice, setItemSellPrice] = useState("");
   const [itemNotes, setItemNotes] = useState("");
-  const [manualUsagePriceTierId, setManualUsagePriceTierId] = useState("");
   const [draftItems, setDraftItems] = useState<DraftItem[]>([]);
+  const [editingTierId, setEditingTierId] = useState("");
+  const [tierUsagePrice, setTierUsagePrice] = useState("");
+  const [tierPurchaseMin, setTierPurchaseMin] = useState("");
+  const [tierPurchaseMax, setTierPurchaseMax] = useState("");
+  const [tierAlertLimit, setTierAlertLimit] = useState("5");
+  const [savingTier, setSavingTier] = useState(false);
 
   useEffect(() => {
     void loadData();
@@ -182,16 +189,6 @@ export default function Purchases() {
       ) || null
     );
   }, [itemKind, itemPurchasePrice, usagePriceTiers]);
-
-  const selectedUsagePriceTier = useMemo(() => {
-    if (automaticTier) return automaticTier;
-    if (!manualUsagePriceTierId) return null;
-    return usagePriceTiers.find((tier) => tier.id === manualUsagePriceTierId) || null;
-  }, [automaticTier, manualUsagePriceTierId, usagePriceTiers]);
-
-  useEffect(() => {
-    if (automaticTier) setManualUsagePriceTierId("");
-  }, [automaticTier]);
 
   const itemsSubtotal = useMemo(
     () =>
@@ -270,6 +267,8 @@ export default function Purchases() {
             purchase_max,
             stock,
             average_unit_cost,
+            alert_limit,
+            sort_order,
             branch_id
           `)
           .eq("is_active", true)
@@ -348,6 +347,8 @@ export default function Purchases() {
               : Number(tier.purchase_max),
           stock: Number(tier.stock || 0),
           averageUnitCost: Number(tier.average_unit_cost || 0),
+          alertLimit: Number(tier.alert_limit || 0),
+          sortOrder: Number(tier.sort_order || 0),
         }))
       );
 
@@ -375,6 +376,79 @@ export default function Purchases() {
     }
   }
 
+  function startEditTier(tier: UsagePriceTier) {
+    setEditingTierId(tier.id);
+    setTierUsagePrice(String(tier.usagePrice));
+    setTierPurchaseMin(String(tier.purchaseMin));
+    setTierPurchaseMax(tier.purchaseMax === null ? "" : String(tier.purchaseMax));
+    setTierAlertLimit(String(tier.alertLimit || 0));
+  }
+
+  function resetTierForm() {
+    setEditingTierId("");
+    setTierUsagePrice("");
+    setTierPurchaseMin("");
+    setTierPurchaseMax("");
+    setTierAlertLimit("5");
+  }
+
+  async function saveUsageTier() {
+    if (!effectiveBranchId) return alert("اختر فرعًا محددًا أولًا");
+
+    const usagePrice = Number(tierUsagePrice);
+    const purchaseMin = Number(tierPurchaseMin);
+    const purchaseMax = tierPurchaseMax.trim() === "" ? null : Number(tierPurchaseMax);
+    const alertLimit = Number(tierAlertLimit || 0);
+
+    if (!Number.isFinite(usagePrice) || usagePrice <= 0) return alert("اكتب سعر الفئة بشكل صحيح");
+    if (!Number.isFinite(purchaseMin) || purchaseMin < 0) return alert("اكتب أقل سعر شراء بشكل صحيح");
+    if (purchaseMax !== null && (!Number.isFinite(purchaseMax) || purchaseMax < purchaseMin)) {
+      return alert("أعلى سعر شراء يجب أن يكون أكبر من أو يساوي أقل سعر شراء");
+    }
+
+    setSavingTier(true);
+    try {
+      if (editingTierId) {
+        const { error } = await supabase.from("usage_price_tiers").update({
+          usage_price: usagePrice,
+          purchase_min: purchaseMin,
+          purchase_max: purchaseMax,
+          alert_limit: alertLimit,
+        }).eq("id", editingTierId);
+        if (error) throw error;
+      } else {
+        const nextSort = usagePriceTiers.reduce((m, x) => Math.max(m, x.sortOrder || 0), 0) + 1;
+        const { error } = await supabase.from("usage_price_tiers").insert({
+          usage_price: usagePrice,
+          purchase_min: purchaseMin,
+          purchase_max: purchaseMax,
+          stock: 0,
+          average_unit_cost: 0,
+          alert_limit: alertLimit,
+          is_active: true,
+          sort_order: nextSort,
+          branch_id: effectiveBranchId,
+        });
+        if (error) throw error;
+      }
+      resetTierForm();
+      await loadData();
+      alert("تم حفظ الفئة ✅");
+    } catch (error: unknown) {
+      alert(getErrorMessage(error));
+    } finally {
+      setSavingTier(false);
+    }
+  }
+
+  async function disableUsageTier(tier: UsagePriceTier) {
+    if (!window.confirm(`إخفاء فئة ${tier.usagePrice} د.ل؟`)) return;
+    const { error } = await supabase.from("usage_price_tiers").update({ is_active: false }).eq("id", tier.id);
+    if (error) return alert(getErrorMessage(error));
+    if (editingTierId === tier.id) resetTierForm();
+    await loadData();
+  }
+
   function addItem() {
     const quantity = Number(itemQuantity);
     const purchasePrice = Number(itemPurchasePrice);
@@ -399,8 +473,8 @@ export default function Purchases() {
     }
 
     if (itemKind === "usage_price_tier") {
-      if (!selectedUsagePriceTier) {
-        alert("سعر الشراء لا يطابق فئة تلقائيًا. اختر فئة الاستخدام يدويًا.");
+      if (!automaticTier) {
+        alert("لا توجد فئة استخدام مناسبة لسعر الشراء المدخل");
         return;
       }
 
@@ -410,9 +484,9 @@ export default function Purchases() {
           localId: crypto.randomUUID(),
           itemKind: "usage_price_tier",
           productDetailId: null,
-          usagePriceTierId: selectedUsagePriceTier.id,
+          usagePriceTierId: automaticTier.id,
           productName: "ورد صناعي / إكسسوارات",
-          detailName: `فئة ${selectedUsagePriceTier.usagePrice} د.ل`,
+          detailName: `فئة ${automaticTier.usagePrice} د.ل`,
           quantity,
           unitPurchasePrice: purchasePrice,
           unitSellPrice: 0,
@@ -535,7 +609,6 @@ export default function Purchases() {
     setItemPurchasePrice("");
     setItemSellPrice("");
     setItemNotes("");
-    setManualUsagePriceTierId("");
   }
 
   function resetInvoice() {
@@ -670,6 +743,91 @@ export default function Purchases() {
       </section>
 
       <section className="rounded-2xl bg-white p-5 shadow md:p-6">
+        <div className="mb-5">
+          <h2 className="text-2xl font-bold">🌿 إدارة فئات الورد الصناعي / الإكسسوارات</h2>
+          <p className="mt-2 text-sm text-gray-500">
+            من هنا تضيف وتعدل الفئات وتشوف مخزون كل فئة في الفرع الحالي.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <Field label="سعر الفئة / الاستخدام">
+            <input type="number" min="0.01" step="0.01" value={tierUsagePrice}
+              onChange={(e) => setTierUsagePrice(e.target.value)} className={inputClass} placeholder="مثلاً 5" />
+          </Field>
+          <Field label="أقل سعر شراء">
+            <input type="number" min="0" step="0.01" value={tierPurchaseMin}
+              onChange={(e) => setTierPurchaseMin(e.target.value)} className={inputClass} placeholder="مثلاً 0" />
+          </Field>
+          <Field label="أعلى سعر شراء">
+            <input type="number" min="0" step="0.01" value={tierPurchaseMax}
+              onChange={(e) => setTierPurchaseMax(e.target.value)} className={inputClass} placeholder="فارغ = بدون حد" />
+          </Field>
+          <Field label="تنبيه قرب النفاد">
+            <input type="number" min="0" step="1" value={tierAlertLimit}
+              onChange={(e) => setTierAlertLimit(e.target.value)} className={inputClass} />
+          </Field>
+          <div className="flex items-end gap-2">
+            <button type="button" onClick={saveUsageTier} disabled={savingTier}
+              className="w-full rounded-xl bg-emerald-700 px-5 py-3 font-bold text-white disabled:opacity-50">
+              {savingTier ? "جاري الحفظ..." : editingTierId ? "حفظ التعديل" : "+ إضافة فئة"}
+            </button>
+            {editingTierId && (
+              <button type="button" onClick={resetTierForm}
+                className="rounded-xl border px-4 py-3 font-semibold">إلغاء</button>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-6 overflow-x-auto rounded-xl border">
+          <table className="w-full min-w-[900px]">
+            <thead className="bg-emerald-50">
+              <tr>
+                <th className="p-3 text-right">الفئة</th>
+                <th className="p-3 text-right">نطاق سعر الشراء</th>
+                <th className="p-3 text-right">المخزون الحالي</th>
+                <th className="p-3 text-right">متوسط التكلفة</th>
+                <th className="p-3 text-right">قيمة المخزون</th>
+                <th className="p-3 text-right">حد التنبيه</th>
+                <th className="p-3 text-right">إجراءات</th>
+              </tr>
+            </thead>
+            <tbody>
+              {usagePriceTiers.map((tier) => (
+                <tr key={tier.id} className="border-t">
+                  <td className="p-3 font-bold text-emerald-800">{money(tier.usagePrice)}</td>
+                  <td className="p-3">
+                    {money(tier.purchaseMin)} — {tier.purchaseMax === null ? "بدون حد أعلى" : money(tier.purchaseMax)}
+                  </td>
+                  <td className="p-3">
+                    <span className={`rounded-full px-3 py-1 font-bold ${
+                      tier.stock <= tier.alertLimit ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"
+                    }`}>
+                      {tier.stock} قطعة
+                    </span>
+                  </td>
+                  <td className="p-3">{money(tier.averageUnitCost)}</td>
+                  <td className="p-3 font-bold">{money(tier.stock * tier.averageUnitCost)}</td>
+                  <td className="p-3">{tier.alertLimit}</td>
+                  <td className="p-3">
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => startEditTier(tier)}
+                        className="rounded-lg bg-blue-100 px-3 py-2 font-semibold text-blue-700">تعديل</button>
+                      <button type="button" onClick={() => disableUsageTier(tier)}
+                        className="rounded-lg bg-red-100 px-3 py-2 font-semibold text-red-700">إخفاء</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {usagePriceTiers.length === 0 && (
+                <tr><td colSpan={7} className="p-8 text-center text-gray-500">لا توجد فئات مسجلة لهذا الفرع</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="rounded-2xl bg-white p-5 shadow md:p-6">
         <h2 className="mb-5 text-2xl font-bold">إضافة منتجات للفاتورة</h2>
 
         <div className="mb-5 flex flex-wrap gap-3">
@@ -773,29 +931,11 @@ export default function Purchases() {
               ))}
             </div>
 
-            {automaticTier ? (
+            {automaticTier && (
               <div className="mt-4 rounded-xl bg-white p-4 font-bold text-emerald-700">
                 الفئة المحددة تلقائيًا: {automaticTier.usagePrice} د.ل
               </div>
-            ) : Number(itemPurchasePrice || 0) > 0 ? (
-              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
-                <p className="mb-3 font-bold text-amber-800">
-                  سعر الشراء لا يطابق فئة تلقائيًا — اختر فئة الاستخدام يدويًا:
-                </p>
-                <select
-                  value={manualUsagePriceTierId}
-                  onChange={(event) => setManualUsagePriceTierId(event.target.value)}
-                  className={inputClass}
-                >
-                  <option value="">اختر فئة الاستخدام</option>
-                  {usagePriceTiers.map((tier) => (
-                    <option key={tier.id} value={tier.id}>
-                      فئة {tier.usagePrice} د.ل — مخزون {tier.stock}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ) : null}
+            )}
           </div>
         )}
 
