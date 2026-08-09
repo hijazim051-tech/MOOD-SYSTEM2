@@ -223,12 +223,23 @@ export default function PackagingEmployee() {
     setLoading(true);
 
     try {
+      // مخزون المنتجات أصبح منفصلًا لكل فرع داخل branch_product_stock.
+      // نفلتر بالفرع الحالي حتى لا تختلط كميات MOOD مع Alpha.
+      let branchStockQuery = supabase
+        .from("branch_product_stock")
+        .select("branch_id,product_detail_id,stock,alert_limit");
+
+      if (effectiveBranchId) {
+        branchStockQuery = branchStockQuery.eq("branch_id", effectiveBranchId);
+      }
+
       const [
         ordersResult,
         tiersResult,
         stockResult,
         productsResult,
         customItemsResult,
+        branchStockResult,
       ] = await Promise.all([
           supabase
             .from("orders")
@@ -257,10 +268,7 @@ export default function PackagingEmployee() {
                 id,
                 product_detail_id,
                 material_name,
-                actual_quantity,
-                product_details (
-                  stock
-                )
+                actual_quantity
               ),
               order_item_external_contents (
                 id,
@@ -279,11 +287,10 @@ export default function PackagingEmployee() {
             .eq("is_active", true)
             .order("sort_order"),
 
+          // product_details هنا للبيانات الوصفية فقط؛ الكمية الفعلية تؤخذ من branch_product_stock.
           supabase
             .from("product_details")
-            .select("id,product_id,name,stock")
-            .lte("stock", LOW_STOCK_LIMIT)
-            .order("stock", { ascending: true }),
+            .select("id,product_id,name"),
 
           supabase.from("products").select("id,name"),
 
@@ -302,6 +309,8 @@ export default function PackagingEmployee() {
                 is_external
               )
             `),
+
+          branchStockQuery,
         ]);
 
       if (ordersResult.error) throw ordersResult.error;
@@ -309,8 +318,18 @@ export default function PackagingEmployee() {
       if (stockResult.error) throw stockResult.error;
       if (productsResult.error) throw productsResult.error;
       if (customItemsResult.error) throw customItemsResult.error;
+      if (branchStockResult.error) throw branchStockResult.error;
 
       const customItems = (customItemsResult.data || []) as any[];
+
+      // المفتاح مركب من الفرع + المنتج التفصيلي، لذلك نفس المنتج يمكن أن
+      // يكون 20 في MOOD و0 في Alpha بدون أي تعارض.
+      const branchStockMap = new Map<string, number>(
+        (branchStockResult.data || []).map((row: any) => [
+          `${String(row.branch_id || "")}:${Number(row.product_detail_id || 0)}`,
+          Number(row.stock || 0),
+        ]),
+      );
 
       const packagingRows = effectiveBranchId ? (ordersResult.data || []).filter((row: any) => String(row.branch_id || "") === effectiveBranchId) : (ordersResult.data || []);
       const mappedOrders: PackagingOrder[] = packagingRows.map(
@@ -374,9 +393,9 @@ export default function PackagingEmployee() {
                 materialName: String(
                   option.material_name || "غلاف"
                 ),
-                stock: Number(
-                  option.product_details?.stock || 0
-                ),
+                stock: branchStockMap.get(
+                  `${String(order.branch_id || "")}:${Number(option.product_detail_id || 0)}`
+                ) ?? 0,
                 actualQuantity:
                   option.actual_quantity === null ||
                   option.actual_quantity === undefined
@@ -416,21 +435,26 @@ export default function PackagingEmployee() {
         ]),
       );
 
-      const productAlerts: StockAlert[] = (stockResult.data || []).map(
-        (detail: any) => {
-          const productName = productsMap.get(Number(detail.product_id)) || "";
-          const detailName = String(detail.name || "");
+      const detailsMap = new Map<number, any>(
+        (stockResult.data || []).map((detail: any) => [Number(detail.id), detail]),
+      );
+
+      const productAlerts: StockAlert[] = (branchStockResult.data || [])
+        .filter((row: any) => Number(row.stock || 0) <= LOW_STOCK_LIMIT)
+        .map((row: any) => {
+          const detail = detailsMap.get(Number(row.product_detail_id));
+          const productName = productsMap.get(Number(detail?.product_id)) || "";
+          const detailName = String(detail?.name || "");
           return {
-            id: `product-${detail.id}`,
+            id: `product-${String(row.branch_id)}-${Number(row.product_detail_id)}`,
             name:
               [productName, detailName]
                 .filter(Boolean)
                 .filter((part, index, array) => array.indexOf(part) === index)
-                .join(" - ") || `منتج #${detail.id}`,
-            stock: Number(detail.stock || 0),
+                .join(" - ") || `منتج #${Number(row.product_detail_id)}`,
+            stock: Number(row.stock || 0),
           };
-        },
-      );
+        });
 
       const tierAlerts: StockAlert[] = mappedTiers
         .filter((tier) => tier.stock <= LOW_STOCK_LIMIT)
