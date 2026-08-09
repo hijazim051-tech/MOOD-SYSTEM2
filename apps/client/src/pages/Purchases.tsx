@@ -106,6 +106,7 @@ export default function Purchases() {
   const [itemPurchasePrice, setItemPurchasePrice] = useState("");
   const [itemSellPrice, setItemSellPrice] = useState("");
   const [itemNotes, setItemNotes] = useState("");
+  const [manualUsagePriceTierId, setManualUsagePriceTierId] = useState("");
   const [draftItems, setDraftItems] = useState<DraftItem[]>([]);
 
   useEffect(() => {
@@ -181,6 +182,16 @@ export default function Purchases() {
       ) || null
     );
   }, [itemKind, itemPurchasePrice, usagePriceTiers]);
+
+  const selectedUsagePriceTier = useMemo(() => {
+    if (automaticTier) return automaticTier;
+    if (!manualUsagePriceTierId) return null;
+    return usagePriceTiers.find((tier) => tier.id === manualUsagePriceTierId) || null;
+  }, [automaticTier, manualUsagePriceTierId, usagePriceTiers]);
+
+  useEffect(() => {
+    if (automaticTier) setManualUsagePriceTierId("");
+  }, [automaticTier]);
 
   const itemsSubtotal = useMemo(
     () =>
@@ -388,8 +399,8 @@ export default function Purchases() {
     }
 
     if (itemKind === "usage_price_tier") {
-      if (!automaticTier) {
-        alert("لا توجد فئة استخدام مناسبة لسعر الشراء المدخل");
+      if (!selectedUsagePriceTier) {
+        alert("سعر الشراء لا يطابق فئة تلقائيًا. اختر فئة الاستخدام يدويًا.");
         return;
       }
 
@@ -399,9 +410,9 @@ export default function Purchases() {
           localId: crypto.randomUUID(),
           itemKind: "usage_price_tier",
           productDetailId: null,
-          usagePriceTierId: automaticTier.id,
+          usagePriceTierId: selectedUsagePriceTier.id,
           productName: "ورد صناعي / إكسسوارات",
-          detailName: `فئة ${automaticTier.usagePrice} د.ل`,
+          detailName: `فئة ${selectedUsagePriceTier.usagePrice} د.ل`,
           quantity,
           unitPurchasePrice: purchasePrice,
           unitSellPrice: 0,
@@ -524,6 +535,7 @@ export default function Purchases() {
     setItemPurchasePrice("");
     setItemSellPrice("");
     setItemNotes("");
+    setManualUsagePriceTierId("");
   }
 
   function resetInvoice() {
@@ -761,11 +773,29 @@ export default function Purchases() {
               ))}
             </div>
 
-            {automaticTier && (
+            {automaticTier ? (
               <div className="mt-4 rounded-xl bg-white p-4 font-bold text-emerald-700">
                 الفئة المحددة تلقائيًا: {automaticTier.usagePrice} د.ل
               </div>
-            )}
+            ) : Number(itemPurchasePrice || 0) > 0 ? (
+              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                <p className="mb-3 font-bold text-amber-800">
+                  سعر الشراء لا يطابق فئة تلقائيًا — اختر فئة الاستخدام يدويًا:
+                </p>
+                <select
+                  value={manualUsagePriceTierId}
+                  onChange={(event) => setManualUsagePriceTierId(event.target.value)}
+                  className={inputClass}
+                >
+                  <option value="">اختر فئة الاستخدام</option>
+                  {usagePriceTiers.map((tier) => (
+                    <option key={tier.id} value={tier.id}>
+                      فئة {tier.usagePrice} د.ل — مخزون {tier.stock}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
           </div>
         )}
 
