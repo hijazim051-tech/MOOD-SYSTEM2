@@ -35,12 +35,23 @@ export async function saveBuiltOrder(input: {
   payment: PaymentInput;
   items: ExtendedBuilderItem[];
   branchId?: string | null;
+  deferInventory?: boolean;
 }) {
-  const { customer, payment, items, branchId } = input;
+  const { customer, payment, items, branchId, deferInventory = false } = input;
 
   const todayKey = new Date().toISOString().slice(0, 10);
   const deliveryDate = String(customer.deliveryDate || "");
-  const isFutureOrder = Boolean(deliveryDate && deliveryDate > todayKey);
+  const isFutureOrder = Boolean(deferInventory);
+
+  if (isFutureOrder) {
+    if (!deliveryDate) {
+      throw new Error("حدد تاريخ تنفيذ الطلب المستقبلي");
+    }
+
+    if (deliveryDate <= todayKey) {
+      throw new Error("تاريخ الحجز المستقبلي يجب أن يكون بعد تاريخ اليوم");
+    }
+  }
 
   const requiredByMaterial = new Map<
     number,

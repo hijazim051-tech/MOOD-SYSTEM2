@@ -640,49 +640,9 @@ export default function NewOrder() {
       setSuccessData(successSnapshot);
 
       if (!wasEditing) {
-        const printableOrder: Parameters<typeof shareInvoicePdfToWhatsApp>[0] = {
-          id: Number(result?.id ?? 0),
-          branchId: effectiveBranchId,
-          orderNumber: String(orderNumber),
-          customerName: customer.customerName,
-          customerPhone: customer.customerPhone,
-          occasion: customer.occasion || "",
-          deliveryDate: customer.deliveryDate || "",
-          deliveryTime: customer.deliveryTime || "",
-          deliveryAddress: payment.deliveryAddress || customer.address || "",
-          notes: customer.notes || "",
-          productsTotal,
-          deliveryFee: Number(payment.deliveryFee || 0),
-          discount: Number(payment.discount || 0),
-          total: finalTotal,
-          paidAmount: totalPaid,
-          remainingAmount: Math.max(finalTotal - totalPaid, 0),
-          cashAmount: Number(payment.cashAmount || 0),
-          bankAmount: Number(payment.bankAmount || 0),
-          transferAmount: Number(payment.transferAmount || 0),
-          depositAmount: Number(payment.depositAmount || 0),
-          paymentMethod: payment.paymentMethod || "cash",
-          deliveryPaymentMethod: payment.deliveryPaymentMethod || "none",
-          deliveryStatus: payment.deliveryStatus || "pending",
-          deliveryDriverName: payment.deliveryDriverName || "",
-          deliveryCompanyName: payment.deliveryCompanyName || "",
-          status: "packaging",
-          createdAt: new Date().toISOString(),
-          items: items.map((item, index) => ({
-            id: String(item.tempId || index),
-            itemType: item.itemType,
-            title: item.title,
-            sellPrice: Number(item.sellPrice || 0),
-            notes: item.notes || "",
-            components: (item.components || []).map((component, componentIndex) => ({
-              id: String(component.tempId || componentIndex),
-              name: component.componentName || "مكون",
-              section: component.section || "additions",
-              quantity: Number(component.quantity || 0),
-              isExternal: Boolean(component.isExternal),
-            })),
-          })),
-        };
+        const printableOrder = {
+          ...successSnapshot, id: Number(result?.id ?? 0), orderNumber, branchId: effectiveBranchId,
+        } as unknown as Parameters<typeof shareInvoicePdfToWhatsApp>[0];
         let pdfError: unknown = null;
         for (let attempt = 1; attempt <= 2; attempt += 1) {
           try {
