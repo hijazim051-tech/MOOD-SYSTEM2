@@ -17,13 +17,13 @@ import Dashboard from "./pages/Dashboard";
 import POS from "./pages/POS";
 import Orders from "./pages/Orders";
 import NewOrder from "./pages/NewOrder";
+import Drafts from "./pages/Drafts";
 import Items from "./pages/Items";
 import Suppliers from "./pages/Suppliers";
 import ProductionCenter from "./pages/ProductionCenter";
 import Purchases from "./pages/Purchases";
 import Customers from "./pages/Customers";
 import Reports from "./pages/Reports";
-import DailyClosing from "./pages/DailyClosing";
 import Employees from "./pages/Employees";
 import Users from "./pages/Users";
 import Waste from "./pages/Waste";
@@ -32,10 +32,8 @@ import ActivityLogPage from "./pages/ActivityLog";
 import PackagingEmployee from "./pages/PackagingEmployee";
 import ReadyProducts from "./pages/ReadyProducts";
 import Offers from "./pages/Offers";
-import OfferCreate from "./pages/OfferCreate";
 import PwaControls from "./components/PwaControls";
 import Tasks from "./pages/Tasks";
-import TaskCreate from "./pages/TaskCreate";
 import ItemTracking from "./pages/ItemTracking";
 import SupplierReports from "./pages/SupplierReports";
 import Branches from "./pages/Branches";
@@ -44,12 +42,7 @@ import PurchaseInvoices from "./pages/PurchaseInvoices";
 import AdvancedOperations from "./pages/AdvancedOperations";
 import GrowthCenter from "./pages/GrowthCenter";
 import WhatsAppLogs from "./pages/WhatsAppLogs";
-import Trash from "./pages/Trash";
-import Drivers from "./pages/Drivers";
-import DriverCollections from "./pages/DriverCollections";
-import OpeningStock from "./pages/OpeningStock";
-import Withdrawals from "./pages/Withdrawals";
-import { getCurrentUserPageAccess } from "./lib/pageAccess";
+import WhatsAppCampaigns from "./pages/WhatsAppCampaigns";
 import { getUserNotificationPreferences, preferenceMap, type UserNotificationPreference } from "./lib/notificationPreferences";
 import { BranchProvider, useBranch } from "./context/BranchContext";
 import { refreshWhatsAppSettings } from "./lib/whatsappSettings";
@@ -74,7 +67,6 @@ function App() {
   const [userBranchId, setUserBranchId] = useState<string | null>(null);
   const [canViewAllBranches, setCanViewAllBranches] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [allowedPages, setAllowedPages] = useState<Set<string> | null>(null);
   const [notificationPreferences, setNotificationPreferences] = useState<Map<string, UserNotificationPreference>>(new Map());
 
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -85,15 +77,6 @@ function App() {
   const notifiedIdsRef = useRef<Set<string>>(new Set());
   const notificationsInitializedRef = useRef(false);
 
-
-  useEffect(() => {
-    const handler = (event: Event) => {
-      const custom = event as CustomEvent<{ page?: string }>;
-      if (custom.detail?.page) setPage(custom.detail.page);
-    };
-    window.addEventListener("mood:navigate", handler);
-    return () => window.removeEventListener("mood:navigate", handler);
-  }, []);
   useEffect(() => {
     void checkUser();
   }, []);
@@ -171,12 +154,6 @@ function App() {
         setUserBranchId(profile.branch_id || null);
         setCanViewAllBranches(Boolean(profile.access_all_branches) || ["owner", "admin"].includes(role));
         console.log("Role from Supabase:", role);
-        try {
-          setAllowedPages(await getCurrentUserPageAccess(role));
-        } catch (error) {
-          console.warn("تعذر تحميل صلاحيات الصفحات:", error);
-          setAllowedPages(["owner", "admin"].includes(role) ? null : new Set(["dashboard"]));
-        }
       }
 
       void refreshWhatsAppSettings();
@@ -459,16 +436,6 @@ function App() {
     setNotificationsOpen(false);
   }
 
-  useEffect(() => {
-    const isAliasAllowed =
-      (page === "driver-orders" && allowedPages?.has("orders")) ||
-      (page === "opening-stock" && allowedPages?.has("inventory"));
-    if (allowedPages && !allowedPages.has(page) && !isAliasAllowed) {
-      const fallback = allowedPages.has("dashboard") ? "dashboard" : Array.from(allowedPages)[0];
-      if (fallback) setPage(fallback);
-    }
-  }, [allowedPages, page]);
-
   const notificationCount = notifications.length;
 
   const notificationGroups = useMemo(
@@ -510,10 +477,9 @@ function App() {
         userRole={userRole}
         mobileOpen={mobileMenuOpen}
         onCloseMobile={() => setMobileMenuOpen(false)}
-        allowedPages={allowedPages}
       />
 
-      <main className="h-screen min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
+      <main className="min-w-0 flex-1 overflow-x-hidden">
         <BranchHeader
           setMobileMenuOpen={setMobileMenuOpen}
           notificationsRef={notificationsRef}
@@ -533,24 +499,24 @@ function App() {
         {page === "dashboard" && <Dashboard />}
         {page === "pos" && <POS setPage={setPage} />}
         {page === "orders" && (
-          <Orders setPage={setPage} userRole={userRole} />
+          <Orders
+            setPage={setPage}
+            userRole={userRole}
+          />
         )}
-        {page === "driver-orders" && <DriverCollections />}
         {page === "new-order" && <NewOrder />}
+        {page === "drafts" && <Drafts setPage={setPage} />}
         {page === "items" && <Items />}
         {page === "inventory" && <Inventory />}
-        {page === "opening-stock" && <OpeningStock />}
         {page === "production" && <ProductionCenter />}
         {page === "purchases" && <Purchases />}
         {page === "suppliers" && <Suppliers />}
         {page === "packaging" && <PackagingEmployee />}
         {page === "ready-products" && <ReadyProducts />}
         {page === "offers" && <Offers />}
-        {page === "offer-create" && <OfferCreate />}
         {page === "waste" && <Waste />}
         {page === "expenses" && <Expenses />}
         {page === "tasks" && <Tasks />}
-        {page === "task-create" && ["owner", "admin", "manager"].includes(userRole) && <TaskCreate />}
         {page === "item-tracking" && <ItemTracking />}
         {page === "supplier-reports" && <SupplierReports />}
         {page === "purchase-invoices" && <PurchaseInvoices />}
@@ -558,8 +524,6 @@ function App() {
         {page === "advanced-operations" && <AdvancedOperations />}
         {page === "growth-center" && <GrowthCenter />}
         {page === "attendance" && <Attendance />}
-        {page === "withdrawals" && <Withdrawals />}
-        {page === "drivers" && <Drivers />}
         {page === "customers" && <Customers />}
         {page === "employees" && <Employees />}
 
@@ -576,12 +540,7 @@ function App() {
         {page === "reports" &&
           userRole !== "employee" && <Reports />}
 
-        {page === "daily-closing" &&
-          userRole !== "employee" && <DailyClosing />}
-
-        {page === "trash" &&
-          (userRole === "owner" || userRole === "admin") && <Trash />}
-
+        {page === "whatsapp-campaigns" && (userRole === "owner" || userRole === "admin" || userRole === "manager") && <WhatsAppCampaigns />}
         {page === "whatsapp-logs" && <WhatsAppLogs />}
         {page === "settings" && <Settings />}
         </section>
@@ -669,7 +628,7 @@ function BranchHeader({
 
   return (
     <div
-      className="sticky top-0 z-[9990] flex items-center justify-between gap-2 border-b bg-white/95 p-2 shadow backdrop-blur sm:p-3"
+      className="sticky top-0 z-[9990] flex items-center justify-between gap-2 border-b bg-white p-2 shadow sm:p-3"
       style={{
         borderColor:
           "color-mix(in srgb, var(--branch-primary) 18%, transparent)",
@@ -720,7 +679,8 @@ function BranchHeader({
           </div>
         </div>
 
-        <div className="flex items-center gap-2"><div className="hidden sm:block"><PwaControls /></div><div className="max-w-[155px] sm:max-w-none"><BranchSelector /></div></div>
+        <PwaControls />
+        <BranchSelector />
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
@@ -857,10 +817,9 @@ function BranchHeader({
         <button
           type="button"
           onClick={() => void logout()}
-          className="flex h-11 items-center justify-center rounded-xl bg-red-100 px-3 text-sm font-bold text-red-700 sm:px-4"
-          title="تسجيل خروج"
+          className="rounded-lg bg-red-100 px-3 py-2 text-sm font-semibold text-red-700 sm:px-4 sm:text-base"
         >
-          <span className="sm:hidden">↪</span><span className="hidden sm:inline">تسجيل خروج</span>
+          تسجيل خروج
         </button>
       </div>
     </div>

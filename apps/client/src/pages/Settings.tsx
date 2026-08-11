@@ -1485,8 +1485,8 @@ export default function Settings() {
           <SectionTitle title="إعدادات واتساب" description={`الإعدادات الحالية خاصة بفرع ${selectedBranch?.name || "غير محدد"}. كل فرع يرسل من رقمه وحسابه المستقل.`} />
           {!effectiveBranchId && <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 font-bold text-amber-900">اختر MOOD أو Alpha من محدد الفروع بالأعلى لتعديل إعداداته.</div>}
           <div className="grid gap-4 md:grid-cols-2">
-            <Field label="UltraMsg Instance ID"><input value={whatsappInstanceId} onChange={(e) => setWhatsappInstanceId(e.target.value)} className="w-full rounded-xl border p-3" placeholder="instance123456" /></Field>
-            <Field label="UltraMsg Token"><input type="password" value={whatsappToken} onChange={(e) => setWhatsappToken(e.target.value)} className="w-full rounded-xl border p-3" placeholder="Token الخاص بالفرع" /></Field>
+            <Field label="Evolution Instance"><input value={whatsappInstanceId} onChange={(e) => setWhatsappInstanceId(e.target.value)} className="w-full rounded-xl border p-3" placeholder="mood" /></Field>
+            <Field label="Evolution API Key"><input type="password" value={whatsappToken} onChange={(e) => setWhatsappToken(e.target.value)} className="w-full rounded-xl border p-3" placeholder="API Key" /></Field>
           </div>
           <div className="grid gap-4 md:grid-cols-2">
             <ToggleField label="إرسال رسالة واتساب تلقائيًا بعد حفظ الطلب" checked={whatsappAskAfterSave} onChange={setWhatsappAskAfterSave} />
