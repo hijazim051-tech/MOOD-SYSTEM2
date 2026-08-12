@@ -468,18 +468,15 @@ export default function Dashboard() {
     return products
       .filter(
         (product) =>
+          Number(product.alert_limit || 0) > 0 &&
           Number(product.stock || 0) <= Number(product.alert_limit || 0)
       )
       .sort((a, b) => Number(a.stock || 0) - Number(b.stock || 0));
   }, [products]);
 
   const lowStockTiers = useMemo(() => {
-    return usageTiers
-      .filter(
-        (tier) =>
-          Number(tier.stock || 0) <= Number(tier.alert_limit || 0)
-      )
-      .sort((a, b) => Number(a.stock || 0) - Number(b.stock || 0));
+    // الورد الصناعي أصبح مصروفًا تشغيليًا ولا يدخل في تنبيهات المخزون.
+    return usageTiers.filter(() => false);
   }, [usageTiers]);
 
   const allLowStockCount = lowStockProducts.length + lowStockTiers.length;

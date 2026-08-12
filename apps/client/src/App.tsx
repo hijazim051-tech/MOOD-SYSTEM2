@@ -220,11 +220,11 @@ function App() {
             name,
             color,
             stock,
+            alert_limit,
             products (
               name
             )
           `)
-          .lte("stock", 5)
           .order("stock", { ascending: true })
           .limit(30),
 
@@ -354,6 +354,10 @@ function App() {
           .join(" - ");
 
         const stock = Number(material.stock || 0);
+        const alertLimit = Number(material.alert_limit || 0);
+
+        // 0 يعني أن المستخدم لم يطلب تنبيه لهذا المنتج.
+        if (alertLimit <= 0 || stock > alertLimit) continue;
 
         notificationsList.push({
           id: `stock-${material.id}`,

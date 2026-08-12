@@ -153,14 +153,14 @@ export async function refreshWhatsAppSettings(
     .eq("branch_id", branchId)
     .maybeSingle();
 
-  if (error) {
-    throw new Error(
-      `تعذر تحميل إعدادات واتساب للفرع: ${error.message}`
+  if (error || !data) {
+    // لا نوقف رسائل الطلب بسبب مشكلة قراءة RLS/شبكة في واجهة العميل.
+    // Edge Function يقرأ إعدادات الربط نفسها بصلاحية service role.
+    console.warn(
+      "تعذر تحديث إعدادات واتساب من الفرع؛ سنستخدم آخر إعدادات محفوظة محليًا:",
+      error || "no branch settings row"
     );
-  }
-
-  if (!data) {
-    throw new Error("لا توجد إعدادات واتساب محفوظة لهذا الفرع");
+    return loadWhatsAppSettings(branchId);
   }
 
   const rawRemote =

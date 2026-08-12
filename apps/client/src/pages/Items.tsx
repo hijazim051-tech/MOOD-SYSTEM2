@@ -224,7 +224,7 @@ export default function Items() {
       products: products.length,
       details: allDetails.length,
       lowStock: allDetails.filter(
-        (detail) => detail.stock <= detail.alertLimit
+        (detail) => detail.alertLimit > 0 && detail.stock <= detail.alertLimit
       ).length,
       outOfStock: allDetails.filter((detail) => detail.stock <= 0).length,
     };
@@ -651,7 +651,7 @@ export default function Items() {
               );
 
               const lowCount = product.details.filter(
-                (detail) => detail.stock <= detail.alertLimit
+                (detail) => detail.alertLimit > 0 && detail.stock <= detail.alertLimit
               ).length;
 
               return (

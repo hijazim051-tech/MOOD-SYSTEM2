@@ -23,12 +23,12 @@ export default function ProductDetails({ product, onEditDetail, onDeleteDetail }
 
           <div
             className={`mt-5 rounded-xl px-4 py-2 text-center font-semibold ${
-              detail.isImportant && detail.stock <= detail.alertLimit
+              detail.isImportant && detail.alertLimit > 0 && detail.stock <= detail.alertLimit
                 ? "bg-red-100 text-red-700"
                 : "bg-green-100 text-green-700"
             }`}
           >
-            {detail.isImportant && detail.stock <= detail.alertLimit
+            {detail.isImportant && detail.alertLimit > 0 && detail.stock <= detail.alertLimit
               ? "قارب على النفاد"
               : "متوفر"}
           </div>

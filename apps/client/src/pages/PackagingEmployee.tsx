@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useBranch } from "../context/BranchContext";
 import { sendAutomaticWhatsApp } from "../lib/whatsapp";
-import { loadWhatsAppSettings } from "../lib/whatsappSettings";
+import { refreshWhatsAppSettings } from "../lib/whatsappSettings";
 
 type UsageTier = {
   id: string;
@@ -71,7 +71,6 @@ type OrderFilter = "all" | "late" | "urgent";
 type TierSelection = Record<string, number>;
 type WrappingSelection = Record<string, number>;
 
-const LOW_STOCK_LIMIT = 5;
 const URGENT_HOURS = 2;
 
 const packagingStatuses = ["packaging", "new", "working", "pending_packaging"];
@@ -188,7 +187,7 @@ export default function PackagingEmployee() {
   const targetValue = Number(selectedItem?.contentValue || 0);
   const remainingValue = Math.max(targetValue - selectedValue, 0);
   const excessValue = Math.max(selectedValue - targetValue, 0);
-  const needsUsageTiers = targetValue > 0;
+  const needsUsageTiers = false; // الورد الصناعي لم يعد يُتتبع بفئات استخدام
   const isBouquetItem =
     normalizeStatus(selectedItem?.itemType || "") === "bouquet";
 
@@ -440,7 +439,10 @@ export default function PackagingEmployee() {
       );
 
       const productAlerts: StockAlert[] = (branchStockResult.data || [])
-        .filter((row: any) => Number(row.stock || 0) <= LOW_STOCK_LIMIT)
+        .filter((row: any) => {
+          const limit = Number(row.alert_limit || 0);
+          return limit > 0 && Number(row.stock || 0) <= limit;
+        })
         .map((row: any) => {
           const detail = detailsMap.get(Number(row.product_detail_id));
           const productName = productsMap.get(Number(detail?.product_id)) || "";
@@ -455,16 +457,7 @@ export default function PackagingEmployee() {
             stock: Number(row.stock || 0),
           };
         });
-
-      const tierAlerts: StockAlert[] = mappedTiers
-        .filter((tier) => tier.stock <= LOW_STOCK_LIMIT)
-        .map((tier) => ({
-          id: `tier-${tier.id}`,
-          name: `فئة الاستخدام ${tier.usagePrice} د.ل`,
-          stock: tier.stock,
-        }));
-
-      setStockAlerts([...tierAlerts, ...productAlerts]);
+      setStockAlerts(productAlerts);
 
       const requestedOrderId = Number(
         localStorage.getItem("mood-packaging-order-id") || 0,
@@ -725,12 +718,11 @@ export default function PackagingEmployee() {
 
       let readyWhatsAppError = "";
 
-      if (
-        orderCompleted &&
-        loadWhatsAppSettings(selectedOrder.branchId).sendReadyMessage
-      ) {
+      if (orderCompleted) {
         try {
-          await sendAutomaticWhatsApp(
+          const whatsappSettings = await refreshWhatsAppSettings(selectedOrder.branchId);
+          if (whatsappSettings.sendReadyMessage) {
+            await sendAutomaticWhatsApp(
             {
               id: selectedOrder.id,
               branchId: selectedOrder.branchId,
@@ -740,6 +732,7 @@ export default function PackagingEmployee() {
             },
             "ready"
           );
+          }
         } catch (error) {
           readyWhatsAppError =
             error instanceof Error
@@ -1407,7 +1400,7 @@ export default function PackagingEmployee() {
           <div>
             <h2 className="text-2xl font-bold">تنبيهات المخزون</h2>
             <p className="mt-1 text-sm text-gray-500">
-              يظهر التنبيه عندما تكون الكمية {LOW_STOCK_LIMIT} أو أقل
+              يظهر التنبيه فقط للمنتج الذي حددت له حد تنبيه من إدارة المنتجات
             </p>
           </div>
           <div className="flex gap-2">

@@ -1,0 +1,22 @@
+تم دمج أرقام واتساب والعروض داخل المشروع الكامل.
+
+قبل التجربة:
+1) شغّل migration:
+supabase/migrations/20260811_whatsapp_campaigns.sql
+
+2) انشر الدالة:
+supabase functions deploy whatsapp-campaign
+
+الدالة تستعمل نفس Secrets الموجودة في send-ultramsg:
+EVOLUTION_API_URL
+EVOLUTION_API_KEY
+EVOLUTION_INSTANCE_NAME
+
+3) Build:
+cd apps/client
+npm run build
+
+4) رفع:
+git add .
+git commit -m "Add WhatsApp numbers and campaigns"
+git push origin main
