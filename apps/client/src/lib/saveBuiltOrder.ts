@@ -27,6 +27,7 @@ type ExtendedBuilderItem = BuilderItem & {
     unitSellPrice: number;
     supplierName: string;
     notes: string;
+    paymentMethod?: "cash" | "bank";
   }>;
 };
 
@@ -169,10 +170,7 @@ export async function saveBuiltOrder(input: {
   const hasPackagingItems = items.some(
     (item) =>
       item.itemType === "bouquet" ||
-      (
-        item.itemType === "box" &&
-        Number(item.contentValue || 0) > 0
-      )
+false
   );
 
   const { data: orderData, error: orderError } = await supabase
@@ -246,10 +244,7 @@ export async function saveBuiltOrder(input: {
 
     const needsPackaging =
       item.itemType === "bouquet" ||
-      (
-        item.itemType === "box" &&
-        Number(item.contentValue || 0) > 0
-      );
+false;
 
     /*
      * السجل الحديث المستخدم في واجهة موظف التغليف.
@@ -382,6 +377,7 @@ export async function saveBuiltOrder(input: {
           unit_sell_price: external.unitSellPrice,
           supplier_name: external.supplierName || "",
           notes: external.notes || "",
+          payment_method: external.paymentMethod || "cash",
         });
 
       if (externalError) throw externalError;

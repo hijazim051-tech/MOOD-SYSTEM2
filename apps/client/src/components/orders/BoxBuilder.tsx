@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
-import { supabase } from "../../lib/supabase";
+import { useMemo, useState } from "react";
 import type { BoxVariant, OrderMaterial } from "../../lib/orderCatalog";
 import {
   getMaterialCost,
   getMaterialDisplayName,
+  isArtificialFlowerMaterial,
+  isBoxMaterial,
 } from "../../lib/orderCatalog";
 
 export type BoxFlowerLine = {
@@ -34,6 +35,7 @@ export type BoxExternalPurchaseLine = {
   unitPrice: number;
   supplierName: string;
   notes: string;
+  paymentMethod: "cash" | "bank";
 };
 
 export type BoxDraft = {
@@ -80,15 +82,6 @@ export type BoxDraft = {
   cardUnitCost: number;
 
   notes: string;
-};
-
-type BoxTemplate = {
-  id: string;
-  name: string;
-  size: string;
-  sellPrice: number;
-  contentValue: number;
-  productDetailId: number | null;
 };
 
 type Props = {
@@ -148,11 +141,11 @@ export default function BoxBuilder({
   onChange,
   onRemove,
 }: Props) {
-  const [templates, setTemplates] = useState<BoxTemplate[]>([]);
-  const [loadingTemplates, setLoadingTemplates] = useState(true);
-
+  const [boxSearch, setBoxSearch] = useState("");
+  const [showStockAdditions, setShowStockAdditions] = useState(false);
+  const [additionSearch, setAdditionSearch] = useState("");
   const [additionMaterialId, setAdditionMaterialId] = useState("");
-  const [additionQuantity, setAdditionQuantity] = useState("");
+  const [additionQuantity, setAdditionQuantity] = useState("1");
 
   const [externalName, setExternalName] = useState("");
   const [externalDescription, setExternalDescription] = useState("");
@@ -161,141 +154,89 @@ export default function BoxBuilder({
   const [externalPrice, setExternalPrice] = useState("");
   const [externalSupplier, setExternalSupplier] = useState("");
   const [externalNotes, setExternalNotes] = useState("");
+  const [externalPaymentMethod, setExternalPaymentMethod] =
+    useState<"cash" | "bank">("cash");
 
-  useEffect(() => {
-    void loadTemplates();
-  }, []);
-
-  async function loadTemplates() {
-    setLoadingTemplates(true);
-
-    try {
-      const { data, error } = await supabase
-        .from("order_item_templates")
-        .select(`
-          id,
-          name,
-          size,
-          sell_price,
-          content_value,
-          box_detail_id,
-          product_detail_id
-        `)
-        .eq("item_type", "box")
-        .eq("is_active", true)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-
-      setTemplates(
-        (data || []).map((row: any) => ({
-          id: String(row.id),
-          name: String(row.name || "بوكس"),
-          size: String(row.size || ""),
-          sellPrice: Number(row.sell_price || 0),
-          contentValue: Number(row.content_value || 0),
-          productDetailId:
-            row.box_detail_id == null
-              ? row.product_detail_id == null
-                ? null
-                : Number(row.product_detail_id)
-              : Number(row.box_detail_id),
-        }))
+  const boxMaterials = useMemo(() => {
+    const q = boxSearch.trim().toLowerCase();
+    return materials
+      .filter(isBoxMaterial)
+      .filter((material) => {
+        if (!q) return true;
+        return getMaterialDisplayName(material).toLowerCase().includes(q);
+      })
+      .sort((a, b) =>
+        getMaterialDisplayName(a).localeCompare(getMaterialDisplayName(b), "ar")
       );
-    } catch (error: unknown) {
-      alert(getErrorMessage(error));
-    } finally {
-      setLoadingTemplates(false);
-    }
-  }
+  }, [materials, boxSearch]);
 
-  const additionMaterials = useMemo(
-    () =>
-      materials.filter((material) => {
-        if (material.id === box.boxProductDetailId) return false;
-        if (Number(material.stock || 0) <= 0) return false;
+  const additionMaterials = useMemo(() => {
+    const q = additionSearch.trim().toLowerCase();
 
-        const text = [
-          material.materialType,
-          material.categoryName,
+    return materials
+      .filter((material) => !isBoxMaterial(material))
+      .filter((material) => !isArtificialFlowerMaterial(material))
+      .filter((material) => Number(material.stock || 0) > 0)
+      .filter((material) => {
+        if (!q) return true;
+        return [
           material.productName,
           material.name,
+          material.categoryName,
         ]
           .filter(Boolean)
           .join(" ")
-          .toLowerCase();
+          .toLowerCase()
+          .includes(q);
+      })
+      .sort((a, b) =>
+        getMaterialDisplayName(a).localeCompare(getMaterialDisplayName(b), "ar")
+      );
+  }, [materials, additionSearch]);
 
-        return !(
-          text.includes("artificial_flower") ||
-          text.includes("artificial_accessory") ||
-          text.includes("ورد صناعي") ||
-          text.includes("اكسسوار صناعي")
-        );
-      }),
-    [materials, box.boxProductDetailId]
+  const additionsTotal = box.additions.reduce(
+    (sum, item) =>
+      sum + Number(item.unitPrice || 0) * Number(item.quantity || 0),
+    0
   );
 
-  const additionsTotal = useMemo(
-    () =>
-      box.additions.reduce(
-        (total, item) =>
-          total +
-          Number(item.unitPrice || 0) * Number(item.quantity || 0),
-        0
-      ),
-    [box.additions]
-  );
-
-  const externalTotal = useMemo(
-    () =>
-      box.externalPurchases.reduce(
-        (total, item) =>
-          total +
-          Number(item.unitPrice || 0) * Number(item.quantity || 0),
-        0
-      ),
-    [box.externalPurchases]
+  const externalTotal = box.externalPurchases.reduce(
+    (sum, item) =>
+      sum + Number(item.unitPrice || 0) * Number(item.quantity || 0),
+    0
   );
 
   const totalPrice =
     Number(box.boxPrice || 0) + additionsTotal + externalTotal;
 
-  function selectTemplate(templateId: string) {
-    const template = templates.find((entry) => entry.id === templateId);
+  function chooseBox(value: string) {
+    const material = materials.find((item) => String(item.id) === value);
 
-    if (!template) {
+    if (!material) {
       onChange({
-        ...createEmptyBox(),
-        tempId: box.tempId,
-        notes: box.notes,
+        ...box,
+        boxProductDetailId: null,
+        boxProductName: "",
+        boxUnitCost: 0,
+        boxType: "",
+        boxSize: "",
       });
-      return;
-    }
-
-    const boxMaterial = materials.find(
-      (material) => material.id === template.productDetailId
-    );
-
-    if (boxMaterial && Number(boxMaterial.stock || 0) < 1) {
-      alert(`البوكس غير متوفر: ${getMaterialDisplayName(boxMaterial)}`);
       return;
     }
 
     onChange({
       ...box,
-      boxVariantId: template.id,
-      title: template.name,
-      boxType: template.name,
-      boxSize: template.size,
-      boxPrice: template.sellPrice,
-      contentValue: template.contentValue,
-      boxProductDetailId: template.productDetailId,
-      boxProductName: boxMaterial
-        ? getMaterialDisplayName(boxMaterial)
-        : template.name,
-      boxUnitCost: boxMaterial ? getMaterialCost(boxMaterial) : 0,
+      boxVariantId: null,
+      boxProductDetailId: material.id,
+      boxProductName: getMaterialDisplayName(material),
+      boxUnitCost: getMaterialCost(material),
+      boxType: material.productName || material.name,
+      boxSize: material.color || material.name,
+      title: getMaterialDisplayName(material),
+      // سعر البيع هنا سعر المنتج النهائي: البوكس + الورد الصناعي + التغليف بالتقدير.
+      boxPrice: Number(material.sellPrice || box.boxPrice || 0),
+      contentValue: 0,
       flowers: [],
-      templateComponents: [],
       requiredFlowersCount: 0,
       requiredAccessoriesCount: 0,
       requiredWrappingCount: 0,
@@ -304,38 +245,34 @@ export default function BoxBuilder({
     });
   }
 
-  function addAddition() {
-    const material = additionMaterials.find(
+  function addStockAddition() {
+    const material = materials.find(
       (item) => String(item.id) === additionMaterialId
     );
-    const quantity = Number(additionQuantity);
+    const quantity = Number(additionQuantity || 0);
 
-    if (!material) {
-      alert("اختار الإضافة");
-      return;
-    }
-
+    if (!material) return alert("اختار الإضافة من المخزون");
     if (!Number.isFinite(quantity) || quantity <= 0) {
-      alert("اكتب كمية صحيحة");
-      return;
+      return alert("اكتب كمية صحيحة");
     }
 
     const existing = box.additions.find(
       (item) => item.materialId === material.id
     );
-    const currentQuantity = existing?.quantity || 0;
 
-    if (currentQuantity + quantity > Number(material.stock || 0)) {
-      alert(`المتوفر من ${getMaterialDisplayName(material)} هو ${material.stock}`);
-      return;
+    const nextQty = Number(existing?.quantity || 0) + quantity;
+    if (nextQty > Number(material.stock || 0)) {
+      return alert(
+        `المتوفر من ${getMaterialDisplayName(material)} هو ${material.stock}`
+      );
     }
 
     if (existing) {
       onChange({
         ...box,
         additions: box.additions.map((item) =>
-          item.tempId === existing.tempId
-            ? { ...item, quantity: item.quantity + quantity }
+          item.materialId === material.id
+            ? { ...item, quantity: nextQty }
             : item
         ),
       });
@@ -357,33 +294,18 @@ export default function BoxBuilder({
     }
 
     setAdditionMaterialId("");
-    setAdditionQuantity("");
+    setAdditionQuantity("1");
   }
 
   function addExternalPurchase() {
-    const quantity = Number(externalQuantity);
-    const unitCost = Number(externalCost);
-    const unitPrice = Number(externalPrice);
+    const quantity = Number(externalQuantity || 0);
+    const unitCost = Number(externalCost || 0);
+    const unitPrice = Number(externalPrice || 0);
 
-    if (!externalName.trim()) {
-      alert("اكتب اسم المحتوى الخارجي");
-      return;
-    }
-
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      alert("اكتب كمية صحيحة");
-      return;
-    }
-
-    if (!Number.isFinite(unitCost) || unitCost < 0) {
-      alert("تكلفة الشراء غير صحيحة");
-      return;
-    }
-
-    if (!Number.isFinite(unitPrice) || unitPrice < 0) {
-      alert("سعر البيع غير صحيح");
-      return;
-    }
+    if (!externalName.trim()) return alert("اكتب اسم المنتج الخارجي");
+    if (!Number.isFinite(quantity) || quantity <= 0) return alert("اكتب الكمية");
+    if (!Number.isFinite(unitCost) || unitCost < 0) return alert("تكلفة الشراء غير صحيحة");
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) return alert("سعر البيع غير صحيح");
 
     onChange({
       ...box,
@@ -398,6 +320,7 @@ export default function BoxBuilder({
           unitPrice,
           supplierName: externalSupplier.trim(),
           notes: externalNotes.trim(),
+          paymentMethod: externalPaymentMethod,
         },
       ],
     });
@@ -409,199 +332,188 @@ export default function BoxBuilder({
     setExternalPrice("");
     setExternalSupplier("");
     setExternalNotes("");
+    setExternalPaymentMethod("cash");
   }
 
   return (
     <div className="space-y-6" dir="rtl">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold">📦 بوكس</h2>
+          <h2 className="text-2xl font-black">🎁 بوكس</h2>
           <p className="mt-1 text-gray-500">
-            اختار القالب فقط، وموظف التغليف يحدد فئات المحتوى لاحقًا.
+            اختار البوكس من المخزون وحدد سعر البيع النهائي شامل الورد الصناعي والتغليف بالتقدير.
           </p>
         </div>
-
         <button
           type="button"
           onClick={onRemove}
-          className="rounded-xl bg-red-100 px-4 py-2 font-semibold text-red-700"
+          className="rounded-xl bg-red-100 px-4 py-2 font-bold text-red-700"
         >
-          حذف البوكس
+          حذف
         </button>
       </div>
 
-      <section className="rounded-2xl border p-5">
-        <h3 className="mb-4 text-xl font-bold">قالب البوكس</h3>
+      <section className="rounded-2xl border border-emerald-100 bg-emerald-50 p-5">
+        <h3 className="text-lg font-black text-emerald-900">
+          1. اختار البوكس
+        </h3>
 
-        <select
-          value={box.boxVariantId || ""}
-          onChange={(event) => selectTemplate(event.target.value)}
-          className={inputClass}
-          disabled={loadingTemplates}
-        >
-          <option value="">
-            {loadingTemplates ? "جاري تحميل القوالب..." : "اختار قالب البوكس"}
-          </option>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <input
+            value={boxSearch}
+            onChange={(event) => setBoxSearch(event.target.value)}
+            className={inputClass}
+            placeholder="🔎 ابحث باسم البوكس..."
+          />
 
-          {templates.map((template) => (
-            <option key={template.id} value={template.id}>
-              {template.name}
-              {template.size ? ` — ${template.size}` : ""}
-              {" — محتوى "}
-              {template.contentValue.toFixed(2)}
-              {" — بيع "}
-              {template.sellPrice.toFixed(2)} د.ل
-            </option>
-          ))}
-        </select>
+          <select
+            value={box.boxProductDetailId || ""}
+            onChange={(event) => chooseBox(event.target.value)}
+            className={inputClass}
+          >
+            <option value="">اختار البوكس من المخزون</option>
+            {boxMaterials.map((material) => (
+              <option key={material.id} value={material.id}>
+                {getMaterialDisplayName(material)} — متوفر {material.stock}
+              </option>
+            ))}
+          </select>
+        </div>
 
-        {box.boxVariantId && (
-          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
-            <Summary label="القالب" value={box.title} />
-            <Summary
-              label="قيمة المحتوى"
-              value={`${Number(box.contentValue || 0).toFixed(2)} د.ل`}
+        {box.boxProductDetailId && (
+          <div className="mt-4 grid gap-4 md:grid-cols-3">
+            <Info label="سعر شراء البوكس" value={`${box.boxUnitCost.toFixed(2)} د.ل`} />
+            <Info
+              label="المخزون"
+              value={`${Number(
+                materials.find((item) => item.id === box.boxProductDetailId)?.stock || 0
+              )}`}
             />
-            <Summary
-              label="سعر بيع القالب"
-              value={`${Number(box.boxPrice || 0).toFixed(2)} د.ل`}
-              highlighted
-            />
+            <label>
+              <span className="mb-2 block font-black">
+                سعر البيع النهائي للبوكس *
+              </span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={box.boxPrice || ""}
+                onChange={(event) =>
+                  onChange({
+                    ...box,
+                    boxPrice: Number(event.target.value || 0),
+                  })
+                }
+                className={inputClass}
+                placeholder="يشمل البوكس + الورد + التغليف"
+              />
+              <span className="mt-1 block text-xs text-gray-500">
+                هذا السعر تقديري شامل الورد الصناعي والتغليف.
+              </span>
+            </label>
           </div>
         )}
       </section>
 
       <section className="rounded-2xl border p-5">
-        <h3 className="mb-2 text-xl font-bold">
-          إضافات ثابتة من مخزون المحل
-        </h3>
-        <p className="mb-4 text-sm text-gray-500">
-          مثل قاعدة أو حامل أو كرت. لا تضف الورد الصناعي أو الإكسسوارات هنا.
-        </p>
-
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <select
-            value={additionMaterialId}
-            onChange={(event) => setAdditionMaterialId(event.target.value)}
-            className={`${inputClass} md:col-span-2`}
-          >
-            <option value="">اختار إضافة</option>
-            {additionMaterials.map((material) => (
-              <option key={material.id} value={material.id}>
-                {getMaterialDisplayName(material)} — المتوفر {material.stock}
-              </option>
-            ))}
-          </select>
-
-          <input
-            type="number"
-            min="1"
-            value={additionQuantity}
-            onChange={(event) => setAdditionQuantity(event.target.value)}
-            className={inputClass}
-            placeholder="الكمية"
-          />
-        </div>
-
         <button
           type="button"
-          onClick={addAddition}
-          className="mt-4 rounded-xl bg-purple-700 px-6 py-3 font-bold text-white"
+          onClick={() => setShowStockAdditions((value) => !value)}
+          className="flex w-full items-center justify-between rounded-xl bg-gray-50 px-4 py-3 font-black"
         >
-          + إضافة من المخزون
+          <span>➕ إضافة منتج من المخزون</span>
+          <span>{showStockAdditions ? "▲" : "🔎 بحث ▼"}</span>
         </button>
 
-        <div className="mt-4 space-y-2">
-          {box.additions.map((addition) => (
-            <div
-              key={addition.tempId}
-              className="flex items-center justify-between rounded-xl bg-purple-50 p-3"
-            >
-              <span>
-                {addition.name} × {addition.quantity}
-              </span>
+        {showStockAdditions && (
+          <div className="mt-4 space-y-4">
+            <div className="grid gap-3 md:grid-cols-[1fr_1fr_140px_auto]">
+              <input
+                value={additionSearch}
+                onChange={(event) => setAdditionSearch(event.target.value)}
+                className={inputClass}
+                placeholder="ابحث عن الإضافة..."
+              />
+              <select
+                value={additionMaterialId}
+                onChange={(event) => setAdditionMaterialId(event.target.value)}
+                className={inputClass}
+              >
+                <option value="">اختار من نتائج البحث</option>
+                {additionMaterials.map((material) => (
+                  <option key={material.id} value={material.id}>
+                    {getMaterialDisplayName(material)} — {material.stock}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                min="1"
+                value={additionQuantity}
+                onChange={(event) => setAdditionQuantity(event.target.value)}
+                className={inputClass}
+                placeholder="الكمية"
+              />
               <button
                 type="button"
-                onClick={() =>
-                  onChange({
-                    ...box,
-                    additions: box.additions.filter(
-                      (item) => item.tempId !== addition.tempId
-                    ),
-                  })
-                }
-                className="rounded-lg bg-red-100 px-3 py-1 text-red-700"
+                onClick={addStockAddition}
+                className="rounded-xl bg-gray-900 px-5 py-3 font-bold text-white"
               >
-                حذف
+                إضافة
               </button>
             </div>
-          ))}
-        </div>
+
+            {box.additions.map((item) => (
+              <div
+                key={item.tempId}
+                className="flex items-center justify-between rounded-xl bg-gray-50 p-3"
+              >
+                <span>
+                  {item.name} × {item.quantity} —{" "}
+                  {(item.unitPrice * item.quantity).toFixed(2)} د.ل
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onChange({
+                      ...box,
+                      additions: box.additions.filter(
+                        (line) => line.tempId !== item.tempId
+                      ),
+                    })
+                  }
+                  className="rounded-lg bg-red-100 px-3 py-1 text-red-700"
+                >
+                  حذف
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="rounded-2xl border p-5">
-        <h3 className="mb-2 text-xl font-bold">محتوى خارجي</h3>
-        <p className="mb-4 text-sm text-gray-500">
-          عنصر يُشترى خصيصًا للعميل ولا يُخصم من مخزون المحل.
+        <h3 className="text-lg font-black">شراء منتج خارجي لهذا الطلب</h3>
+        <p className="mt-1 text-sm text-gray-500">
+          لو اشتريت هدية أو منتج للطلب من خارج المخزون، سجل طريقة الدفع ليخصم من الرصيد الحالي.
         </p>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <input
-            value={externalName}
-            onChange={(event) => setExternalName(event.target.value)}
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <input value={externalName} onChange={(e)=>setExternalName(e.target.value)} className={inputClass} placeholder="اسم المنتج"/>
+          <input value={externalDescription} onChange={(e)=>setExternalDescription(e.target.value)} className={inputClass} placeholder="الوصف"/>
+          <input type="number" min="1" value={externalQuantity} onChange={(e)=>setExternalQuantity(e.target.value)} className={inputClass} placeholder="الكمية"/>
+          <input type="number" min="0" step="0.01" value={externalCost} onChange={(e)=>setExternalCost(e.target.value)} className={inputClass} placeholder="تكلفة الشراء"/>
+          <input type="number" min="0" step="0.01" value={externalPrice} onChange={(e)=>setExternalPrice(e.target.value)} className={inputClass} placeholder="سعر البيع"/>
+          <select
+            value={externalPaymentMethod}
+            onChange={(e)=>setExternalPaymentMethod(e.target.value as "cash"|"bank")}
             className={inputClass}
-            placeholder="اسم العنصر"
-          />
-
-          <input
-            value={externalDescription}
-            onChange={(event) => setExternalDescription(event.target.value)}
-            className={inputClass}
-            placeholder="الوصف"
-          />
-
-          <input
-            type="number"
-            min="1"
-            value={externalQuantity}
-            onChange={(event) => setExternalQuantity(event.target.value)}
-            className={inputClass}
-            placeholder="الكمية"
-          />
-
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            value={externalCost}
-            onChange={(event) => setExternalCost(event.target.value)}
-            className={inputClass}
-            placeholder="تكلفة الشراء"
-          />
-
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            value={externalPrice}
-            onChange={(event) => setExternalPrice(event.target.value)}
-            className={inputClass}
-            placeholder="سعر البيع"
-          />
-
-          <input
-            value={externalSupplier}
-            onChange={(event) => setExternalSupplier(event.target.value)}
-            className={inputClass}
-            placeholder="المورد أو الجهة"
-          />
-
-          <input
-            value={externalNotes}
-            onChange={(event) => setExternalNotes(event.target.value)}
-            className={`${inputClass} xl:col-span-2`}
-            placeholder="ملاحظات"
-          />
+          >
+            <option value="cash">تم الشراء — كاش</option>
+            <option value="bank">تم الشراء — مصرف</option>
+          </select>
+          <input value={externalSupplier} onChange={(e)=>setExternalSupplier(e.target.value)} className={inputClass} placeholder="المورد/الجهة"/>
+          <input value={externalNotes} onChange={(e)=>setExternalNotes(e.target.value)} className={inputClass} placeholder="ملاحظات"/>
         </div>
 
         <button
@@ -609,31 +521,22 @@ export default function BoxBuilder({
           onClick={addExternalPurchase}
           className="mt-4 rounded-xl bg-gray-900 px-6 py-3 font-bold text-white"
         >
-          + إضافة محتوى خارجي
+          + إضافة المنتج الخارجي
         </button>
 
-        <div className="mt-4 space-y-3">
+        <div className="mt-4 space-y-2">
           {box.externalPurchases.map((purchase) => (
-            <div
-              key={purchase.tempId}
-              className="rounded-xl bg-gray-100 p-4"
-            >
-              <div className="flex flex-wrap items-start justify-between gap-3">
+            <div key={purchase.tempId} className="rounded-xl bg-gray-50 p-3">
+              <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="font-bold">
+                  <p className="font-black">
                     {purchase.name} × {purchase.quantity}
                   </p>
-                  {purchase.description && (
-                    <p className="mt-1 text-sm text-gray-500">
-                      {purchase.description}
-                    </p>
-                  )}
-                  <p className="mt-2 text-sm">
-                    شراء: {purchase.unitCost.toFixed(2)} — بيع:{" "}
-                    {purchase.unitPrice.toFixed(2)} د.ل
+                  <p className="mt-1 text-sm text-gray-500">
+                    شراء {purchase.unitCost.toFixed(2)} — بيع {purchase.unitPrice.toFixed(2)} —
+                    {purchase.paymentMethod === "bank" ? " مصرف" : " كاش"}
                   </p>
                 </div>
-
                 <button
                   type="button"
                   onClick={() =>
@@ -662,66 +565,31 @@ export default function BoxBuilder({
         placeholder="ملاحظات البوكس"
       />
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-        <Summary
-          label="قيمة المحتوى"
-          value={`${Number(box.contentValue || 0).toFixed(2)} د.ل`}
-        />
-        <Summary
-          label="إضافات المخزون"
-          value={`${additionsTotal.toFixed(2)} د.ل`}
-        />
-        <Summary
-          label="المحتوى الخارجي"
-          value={`${externalTotal.toFixed(2)} د.ل`}
-        />
-        <Summary
-          label="الإجمالي"
-          value={`${totalPrice.toFixed(2)} د.ل`}
-          highlighted
-        />
+      <div className="grid gap-4 md:grid-cols-4">
+        <Info label="تكلفة البوكس" value={`${box.boxUnitCost.toFixed(2)} د.ل`} />
+        <Info label="سعر البوكس النهائي" value={`${Number(box.boxPrice || 0).toFixed(2)} د.ل`} />
+        <Info label="إضافات أخرى" value={`${(additionsTotal + externalTotal).toFixed(2)} د.ل`} />
+        <Info label="الإجمالي" value={`${totalPrice.toFixed(2)} د.ل`} strong />
       </div>
     </div>
   );
 }
 
-function Summary({
+function Info({
   label,
   value,
-  highlighted = false,
+  strong = false,
 }: {
   label: string;
-  value: string | number;
-  highlighted?: boolean;
+  value: string;
+  strong?: boolean;
 }) {
   return (
-    <div
-      className={`rounded-2xl p-5 text-center ${
-        highlighted ? "bg-emerald-50" : "bg-gray-50"
-      }`}
-    >
+    <div className={`rounded-xl p-4 ${strong ? "bg-emerald-100" : "bg-gray-50"}`}>
       <p className="text-sm text-gray-500">{label}</p>
-      <p
-        className={`mt-2 text-xl font-bold ${
-          highlighted ? "text-emerald-700" : ""
-        }`}
-      >
+      <p className={`mt-1 ${strong ? "text-xl font-black text-emerald-800" : "font-black"}`}>
         {value}
       </p>
     </div>
   );
-}
-
-function getErrorMessage(error: unknown) {
-  if (error instanceof Error) return error.message;
-
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "message" in error
-  ) {
-    return String((error as { message: unknown }).message);
-  }
-
-  return "حدث خطأ غير متوقع";
 }

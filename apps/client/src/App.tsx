@@ -20,8 +20,8 @@ import NewOrder from "./pages/NewOrder";
 import Drafts from "./pages/Drafts";
 import Items from "./pages/Items";
 import Suppliers from "./pages/Suppliers";
-import ProductionCenter from "./pages/ProductionCenter";
 import Purchases from "./pages/Purchases";
+import Treasury from "./pages/Treasury";
 import Customers from "./pages/Customers";
 import Reports from "./pages/Reports";
 import Employees from "./pages/Employees";
@@ -508,8 +508,8 @@ function App() {
         {page === "drafts" && <Drafts setPage={setPage} />}
         {page === "items" && <Items />}
         {page === "inventory" && <Inventory />}
-        {page === "production" && <ProductionCenter />}
-        {page === "purchases" && <Purchases />}
+                {page === "purchases" && <Purchases />}
+        {page === "treasury" && <Treasury />}
         {page === "suppliers" && <Suppliers />}
         {page === "packaging" && <PackagingEmployee />}
         {page === "ready-products" && <ReadyProducts />}

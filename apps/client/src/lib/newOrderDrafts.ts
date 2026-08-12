@@ -27,6 +27,7 @@ type ExternalPurchaseDraft = {
   unitPrice: number;
   supplierName?: string;
   notes?: string;
+  paymentMethod?: "cash" | "bank";
 };
 
 export type ExtendedBuilderItem = BuilderItem & {
@@ -46,6 +47,7 @@ export type ExtendedBuilderItem = BuilderItem & {
     unitSellPrice: number;
     supplierName: string;
     notes: string;
+    paymentMethod: "cash" | "bank";
   }>;
 };
 
@@ -200,6 +202,7 @@ function convertBouquetToBuilderItem(
     unitSellPrice: Number(purchase.unitPrice || 0),
     supplierName: "",
     notes: "",
+    paymentMethod: purchase.paymentMethod || "cash",
   }));
 
   return {
@@ -268,6 +271,7 @@ function convertBoxToBuilderItem(
     unitSellPrice: Number(purchase.unitPrice || 0),
     supplierName: purchase.supplierName || "",
     notes: purchase.notes || "",
+    paymentMethod: purchase.paymentMethod || "cash",
   }));
 
   return {

@@ -85,7 +85,8 @@ export async function loadOrderForEdit(
           unit_cost,
           unit_sell_price,
           supplier_name,
-          notes
+          notes,
+          payment_method
         )
       )
     `)
@@ -205,6 +206,7 @@ export async function loadOrderForEdit(
           unitPrice: Number(external.unit_sell_price || 0),
           supplierName: String(external.supplier_name || ""),
           notes: String(external.notes || ""),
+          paymentMethod: (String(external.payment_method || "cash") === "bank" ? "bank" : "cash") as "bank" | "cash",
         })),
         notes: String(legacy.notes || ""),
       };
@@ -336,6 +338,7 @@ export async function loadOrderForEdit(
         quantity: Number(external.quantity || 0),
         unitCost: Number(external.unit_cost || 0),
         unitPrice: Number(external.unit_sell_price || 0),
+        paymentMethod: (String(external.payment_method || "cash") === "bank" ? "bank" : "cash") as "bank" | "cash",
       })),
 
       notes: String(legacy.notes || ""),

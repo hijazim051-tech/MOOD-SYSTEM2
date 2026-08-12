@@ -46,6 +46,7 @@ export type ExternalPurchaseLine = {
   quantity: number;
   unitCost: number;
   unitPrice: number;
+  paymentMethod: "cash" | "bank";
 };
 
 export type BouquetDraft = {
@@ -143,6 +144,8 @@ export default function BouquetBuilder({
   const [externalQuantity, setExternalQuantity] = useState("");
   const [externalCost, setExternalCost] = useState("");
   const [externalPrice, setExternalPrice] = useState("");
+  const [externalPaymentMethod, setExternalPaymentMethod] =
+    useState<"cash" | "bank">("cash");
 
   const flowerMaterials = useMemo(
     () => materials.filter(isFlowerMaterial),
@@ -369,6 +372,7 @@ export default function BouquetBuilder({
           quantity,
           unitCost: Number(externalCost || 0),
           unitPrice: Number(externalPrice || 0),
+          paymentMethod: externalPaymentMethod,
         },
       ],
     });
@@ -377,6 +381,7 @@ export default function BouquetBuilder({
     setExternalQuantity("");
     setExternalCost("");
     setExternalPrice("");
+    setExternalPaymentMethod("cash");
   }
 
   return (
@@ -635,6 +640,16 @@ export default function BouquetBuilder({
             className="rounded-xl border p-3"
             placeholder="سعر البيع"
           />
+          <select
+            value={externalPaymentMethod}
+            onChange={(event) =>
+              setExternalPaymentMethod(event.target.value as "cash" | "bank")
+            }
+            className="rounded-xl border p-3"
+          >
+            <option value="cash">تم الشراء — كاش</option>
+            <option value="bank">تم الشراء — مصرف</option>
+          </select>
         </div>
 
         <button
@@ -653,7 +668,7 @@ export default function BouquetBuilder({
             >
               <span>
                 {item.name} × {item.quantity} —{" "}
-                {(item.unitPrice * item.quantity).toFixed(2)} د.ل
+                {(item.unitPrice * item.quantity).toFixed(2)} د.ل — {item.paymentMethod === "bank" ? "مصرف" : "كاش"}
               </span>
               <button
                 type="button"

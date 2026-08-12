@@ -28,6 +28,7 @@ type OldExternalContent = {
   description: string | null;
   quantity: number | null;
   notes: string | null;
+  payment_method?: string | null;
 };
 
 type OldPackagingComponent = {
@@ -307,7 +308,8 @@ export async function updateBuiltOrder(input: {
           item_name,
           description,
           quantity,
-          notes
+          notes,
+          payment_method
         )
       `)
       .eq("order_id", orderId)
@@ -1006,6 +1008,7 @@ export async function updateBuiltOrder(input: {
           unit_sell_price: unitSellPrice,
           supplier_name: external.supplierName || "",
           notes: external.notes || "",
+          payment_method: external.paymentMethod || "cash",
         });
 
       if (externalError) {

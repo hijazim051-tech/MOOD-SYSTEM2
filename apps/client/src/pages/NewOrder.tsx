@@ -111,6 +111,8 @@ export default function NewOrder() {
     useState<CustomerInfoData>({ ...emptyCustomer });
   const [payment, setPayment] =
     useState<PaymentData>({ ...emptyPayment });
+  const [orderTiming, setOrderTiming] =
+    useState<"today" | "future">("today");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [draftSaved, setDraftSaved] = useState(false);
@@ -169,6 +171,7 @@ export default function NewOrder() {
           entries,
           customer,
           payment,
+          orderTiming,
           currentStep,
           savedAt,
         })
@@ -183,6 +186,7 @@ export default function NewOrder() {
     entries,
     customer,
     payment,
+    orderTiming,
     currentStep,
     hasUnsavedChanges,
     saving,
@@ -260,6 +264,7 @@ export default function NewOrder() {
         entries?: NewOrderEntry[];
         customer?: CustomerInfoData;
         payment?: PaymentData;
+        orderTiming?: "today" | "future";
         currentStep?: number;
       };
 
@@ -293,6 +298,7 @@ export default function NewOrder() {
       setEntries(restoredEntries);
       setCustomer(draft.customer || { ...emptyCustomer });
       setPayment(draft.payment || { ...emptyPayment });
+      setOrderTiming(draft.orderTiming === "future" ? "future" : "today");
       setCurrentStep(Number(draft.currentStep || 1));
       setOpenEntryId(restoredEntries[0]?.data.tempId || null);
       setDraftSaved(true);
@@ -308,6 +314,7 @@ export default function NewOrder() {
         entries,
         customer,
         payment,
+        orderTiming,
         currentStep,
         savedAt: new Date().toISOString(),
       })
@@ -373,6 +380,7 @@ export default function NewOrder() {
     setOpenEntryId(null);
     setCustomer({ ...emptyCustomer });
     setPayment({ ...emptyPayment });
+    setOrderTiming("today");
     clearSavedDraft();
   }
 
@@ -577,6 +585,23 @@ export default function NewOrder() {
       if (!proceed) return;
     }
 
+    const todayKey = new Date().toISOString().slice(0, 10);
+
+    if (orderTiming === "future") {
+      if (!customer.deliveryDate) {
+        alert("حدد تاريخ تنفيذ الحجز المستقبلي");
+        setCurrentStep(1);
+        setCustomerExpanded(true);
+        return;
+      }
+      if (customer.deliveryDate <= todayKey) {
+        alert("تاريخ الحجز المستقبلي يجب أن يكون بعد تاريخ اليوم");
+        setCurrentStep(1);
+        setCustomerExpanded(true);
+        return;
+      }
+    }
+
     if (
       totalPaid > finalTotal &&
       !confirm("إجمالي المدفوع أكبر من قيمة الطلب. هل تريد المتابعة؟")
@@ -586,13 +611,12 @@ export default function NewOrder() {
 
     // الدفع الجزئي مسموح: يُحفظ الفرق تلقائيًا كمبلغ متبقٍ على الطلب.
 
-    if (
-      !confirm(
-        "هل تريد حفظ الطلب؟ سيُخصم الورد والمنتج الفردي والبوكس ومكوناته الثابتة من المخزون. ألوان غلاف الباقة تُحفظ فقط، وموظف التغليف يكتب الكمية الفعلية لاحقًا ليتم خصمها."
-      )
-    ) {
-      return;
-    }
+    const saveMessage =
+      orderTiming === "future"
+        ? `حفظ كحجز مستقبلي بتاريخ ${customer.deliveryDate}؟\n\nلن يتم خصم المخزون الآن. سيتم حفظ العربون/المدفوع، وبعد توفر البضاعة يتم تخصيص المخزون.`
+        : "هل تريد حفظ الطلب؟ سيتم خصم المواد المباشرة من مخزون الفرع.";
+
+    if (!confirm(saveMessage)) return;
 
     setSaving(true);
 
@@ -611,6 +635,7 @@ export default function NewOrder() {
             payment,
             items,
             branchId: effectiveBranchId,
+            deferInventory: orderTiming === "future",
           })) as SavedOrderResult | undefined;
 
       const orderNumber =
@@ -698,8 +723,8 @@ export default function NewOrder() {
       }
     }
 
-    if (entry.kind === "box" && !entry.data.boxVariantId) {
-      alert("اختار قالب البوكس أولًا");
+    if (entry.kind === "box" && !entry.data.boxProductDetailId) {
+      alert("اختار البوكس من المخزون أولًا");
       return;
     }
 
@@ -842,6 +867,15 @@ export default function NewOrder() {
 
         {customerExpanded && (
           <div className="border-t border-gray-100 p-3 sm:p-5">
+            <div className="mb-5 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+              <p className="mb-3 font-black text-gray-900">نوع الطلب</p>
+              <div className="grid grid-cols-2 gap-3">
+                <button type="button" onClick={() => setOrderTiming("today")} className={`rounded-xl border-2 p-3 font-black ${orderTiming === "today" ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-gray-200 bg-white text-gray-600"}`}>🛍️ طلب عادي</button>
+                <button type="button" onClick={() => setOrderTiming("future")} className={`rounded-xl border-2 p-3 font-black ${orderTiming === "future" ? "border-amber-500 bg-amber-50 text-amber-900" : "border-gray-200 bg-white text-gray-600"}`}>📅 حجز مستقبلي</button>
+              </div>
+              {orderTiming === "future" && <p className="mt-3 rounded-xl bg-amber-100 p-3 text-sm font-bold text-amber-900">لن يتم خصم المخزون عند الحفظ. لازم تحدد تاريخ تنفيذ بعد اليوم.</p>}
+            </div>
+
             <CustomerInfo
               value={customer}
               onChange={(value) => {
@@ -1472,7 +1506,6 @@ function SingleProductEditor({
     const keyword = searchText.trim().toLowerCase();
 
     return materials
-      .filter((material) => Number(material.stock || 0) > 0)
       .filter((material) => {
         if (!keyword) return true;
 

@@ -997,9 +997,7 @@ function PaymentDialog({
             className={inputClass}
           >
             <option value="cash">نقدًا</option>
-            <option value="card">بطاقة</option>
-            <option value="bank_transfer">تحويل مصرفي</option>
-            <option value="mixed">مختلط</option>
+            <option value="bank_transfer">مصرف</option>
           </select>
         </Field>
       </div>
