@@ -490,6 +490,19 @@ export default function Items() {
           });
         }
 
+        const { error: branchAlertError } = await supabase
+          .from("branch_product_stock")
+          .upsert(
+            {
+              branch_id: effectiveBranchId,
+              product_detail_id: detailForm.id,
+              stock: newStock,
+              alert_limit: Number(detailForm.alertLimit || 0),
+            },
+            { onConflict: "branch_id,product_detail_id" },
+          );
+        if (branchAlertError) throw branchAlertError;
+
         await logActivity({
           action: "update",
           entityType: "product_detail",
@@ -526,6 +539,19 @@ export default function Items() {
             notes: `رصيد افتتاحي من إدارة المنتجات (${selectedBranch?.name || "الفرع"})`,
           });
         }
+
+        const { error: branchAlertError } = await supabase
+          .from("branch_product_stock")
+          .upsert(
+            {
+              branch_id: effectiveBranchId,
+              product_detail_id: Number(insertedDetail.id),
+              stock: initialStock,
+              alert_limit: Number(detailForm.alertLimit || 0),
+            },
+            { onConflict: "branch_id,product_detail_id" },
+          );
+        if (branchAlertError) throw branchAlertError;
 
         await logActivity({
           action: "create",
@@ -776,7 +802,7 @@ export default function Items() {
 
               <tbody>
                 {selectedProduct.details.map((detail) => {
-                  const low = detail.stock <= detail.alertLimit;
+                  const low = detail.alertLimit > 0 && detail.stock > 0 && detail.stock <= detail.alertLimit;
 
                   return (
                     <tr key={detail.id} className="border-b">

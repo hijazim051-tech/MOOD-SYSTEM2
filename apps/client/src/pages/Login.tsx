@@ -23,16 +23,39 @@ export default function Login({ onLogin }: LoginProps) {
       return;
     }
     setLoading(true);
-    const email = cleanUsername.includes("@") ? cleanUsername : `${cleanUsername}@mood.local`;
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
-    if (error) {
-      alert("اسم المستخدم أو كلمة المرور غير صحيحة");
-      return;
+    const email = cleanUsername.includes("@") ? cleanUsername.toLowerCase() : `${cleanUsername.toLowerCase()}@mood.local`;
+    try {
+      // نغلق أي جلسة محلية قديمة أولًا حتى لا يظل التطبيق على حساب سابق.
+      await supabase.auth.signOut({ scope: "local" });
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error || !data.user) {
+        alert("اسم المستخدم أو كلمة المرور غير صحيحة");
+        return;
+      }
+
+      const { data: profile, error: profileError } = await supabase
+        .from("user_profiles")
+        .select("id,is_active")
+        .eq("id", data.user.id)
+        .maybeSingle();
+
+      if (profileError || !profile) {
+        await supabase.auth.signOut({ scope: "local" });
+        alert("الحساب غير مربوط بملف مستخدم داخل المنظومة");
+        return;
+      }
+      if (profile.is_active === false) {
+        await supabase.auth.signOut({ scope: "local" });
+        alert("هذا الحساب معطل");
+        return;
+      }
+
+      if (rememberUsername) localStorage.setItem(USERNAME_KEY, cleanUsername);
+      else localStorage.removeItem(USERNAME_KEY);
+      await onLogin();
+    } finally {
+      setLoading(false);
     }
-    if (rememberUsername) localStorage.setItem(USERNAME_KEY, cleanUsername);
-    else localStorage.removeItem(USERNAME_KEY);
-    onLogin();
   }
 
   return <div className="flex min-h-screen items-center justify-center bg-emerald-950 p-6" dir="rtl">

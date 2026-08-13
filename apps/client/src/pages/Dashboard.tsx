@@ -185,15 +185,23 @@ export default function Dashboard() {
           `)
           .order("created_at", { ascending: false }),
 
-        supabase
-          .from("product_details")
-          .select(`
-            id,
-            name,
-            stock,
-            alert_limit,
-            is_important
-          `),
+        (() => {
+          let query = supabase
+            .from("branch_product_stock")
+            .select(`
+              branch_id,
+              product_detail_id,
+              stock,
+              alert_limit,
+              product_details:product_detail_id (
+                id,
+                name,
+                is_important
+              )
+            `);
+          if (effectiveBranchId) query = query.eq("branch_id", effectiveBranchId);
+          return query;
+        })(),
 
         supabase
           .from("usage_price_tiers")
@@ -260,7 +268,17 @@ export default function Dashboard() {
       setAllExpenses(allExpenseRows);
       setAllWaste(allWasteRows);
       setOrders(allOrderRows.filter(belongsToSelectedBranch));
-      setProducts((productsResult.data || []) as DashboardProduct[]);
+      const dashboardProducts: DashboardProduct[] = (productsResult.data || []).map((row: any) => {
+        const relation = Array.isArray(row.product_details) ? row.product_details[0] : row.product_details;
+        return {
+          id: `${String(row.branch_id || "all")}-${String(row.product_detail_id)}`,
+          name: String(relation?.name || `منتج #${row.product_detail_id}`),
+          stock: Number(row.stock || 0),
+          alert_limit: Number(row.alert_limit || 0),
+          is_important: Boolean(relation?.is_important),
+        };
+      });
+      setProducts(dashboardProducts);
       setUsageTiers((tiersResult.data || []) as UsageTier[]);
       setExpenses(allExpenseRows.filter(belongsToSelectedBranch));
       setWaste(allWasteRows.filter(belongsToSelectedBranch));
@@ -460,6 +478,45 @@ export default function Dashboard() {
 
     return totals;
   }, [financialTransactions]);
+
+  async function setExactBalance(account: "cash" | "bank" | "balance", currentValue: number, label: string) {
+    if (!effectiveBranchId) {
+      alert("اختر فرعًا محددًا قبل تعديل الرصيد");
+      return;
+    }
+
+    const raw = window.prompt(`اكتب الرصيد الجديد لـ ${label}:`, currentValue.toFixed(2));
+    if (raw === null) return;
+
+    const nextValue = Number(raw);
+    if (!Number.isFinite(nextValue)) {
+      alert("اكتب رقمًا صحيحًا");
+      return;
+    }
+
+    const difference = nextValue - currentValue;
+    if (Math.abs(difference) < 0.00001) return;
+
+    const reason = window.prompt("سبب التعديل:", "تصحيح الرصيد الحالي")?.trim();
+    if (!reason) return;
+
+    try {
+      const { error } = await supabase.from("financial_transactions").insert({
+        branch_id: effectiveBranchId,
+        source_type: "manual_adjustment",
+        source_id: crypto.randomUUID(),
+        direction: difference >= 0 ? "in" : "out",
+        account,
+        amount: Math.abs(difference),
+        description: `تعديل مباشر لـ ${label}: ${reason}`,
+        occurred_at: new Date().toISOString(),
+      });
+      if (error) throw error;
+      await loadDashboard();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "تعذر تعديل الرصيد");
+    }
+  }
 
   const externalReceivable = useMemo(() => externalDebts.filter((d) => d.direction === "receivable").reduce((sum, d) => sum + Math.max(Number(d.original_amount || 0) - Number(d.paid_amount || 0), 0), 0), [externalDebts]);
   const externalPayable = useMemo(() => externalDebts.filter((d) => d.direction === "payable").reduce((sum, d) => sum + Math.max(Number(d.original_amount || 0) - Number(d.paid_amount || 0), 0), 0), [externalDebts]);
@@ -804,12 +861,13 @@ export default function Dashboard() {
           <button type="button" onClick={() => void addExternalDebt()} className="rounded-xl bg-gray-900 px-4 py-3 font-bold text-white">+ إضافة دين خارجي</button>
         </div>
         <div className="mt-5 grid grid-cols-2 gap-3 xl:grid-cols-5">
-          <MetricCard icon="💵" title="الكاش الحالي" value={money(currentBalances.cash)} tone={currentBalances.cash >= 0 ? "emerald" : "red"} />
-          <MetricCard icon="🏦" title="المصرف الحالي" value={money(currentBalances.bank)} tone={currentBalances.bank >= 0 ? "blue" : "red"} />
-          <MetricCard icon="💳" title="الرصيد الحالي" value={money(currentBalances.balance)} tone={currentBalances.balance >= 0 ? "purple" : "red"} />
+          <EditableBalanceCard icon="💵" title="الكاش الحالي" value={currentBalances.cash} tone={currentBalances.cash >= 0 ? "emerald" : "red"} onEdit={() => void setExactBalance("cash", currentBalances.cash, "الكاش")} />
+          <EditableBalanceCard icon="🏦" title="المصرف الحالي" value={currentBalances.bank} tone={currentBalances.bank >= 0 ? "blue" : "red"} onEdit={() => void setExactBalance("bank", currentBalances.bank, "المصرف")} />
+          <EditableBalanceCard icon="💳" title="الرصيد الحالي" value={currentBalances.balance} tone={currentBalances.balance >= 0 ? "purple" : "red"} onEdit={() => void setExactBalance("balance", currentBalances.balance, "الرصيد / الذمم")} />
           <MetricCard icon="📈" title="ديون لينا" value={money(externalReceivable)} tone="emerald" />
           <MetricCard icon="📉" title="ديون علينا" value={money(externalPayable)} tone="red" />
         </div>
+        <p className="mt-3 text-xs text-gray-500">اضغط «تعديل» على الكاش أو المصرف أو الرصيد واكتب القيمة الصحيحة مباشرة. الفرق يُحفظ كتسوية مالية حتى يبقى السجل واضحًا.</p>
       </section>
 
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
@@ -979,6 +1037,27 @@ function ComparisonStat({
       }`}>
         {value}
       </p>
+    </div>
+  );
+}
+
+function EditableBalanceCard({ icon, title, value, tone, onEdit }: { icon: string; title: string; value: number; tone: "emerald" | "blue" | "purple" | "red"; onEdit: () => void }) {
+  const toneClasses = {
+    emerald: "bg-emerald-50 text-emerald-800",
+    blue: "bg-blue-50 text-blue-800",
+    purple: "bg-purple-50 text-purple-800",
+    red: "bg-red-50 text-red-800",
+  };
+  return (
+    <div className={`rounded-2xl p-4 ${toneClasses[tone]}`}>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <div className="text-2xl">{icon}</div>
+          <p className="mt-2 text-sm font-bold">{title}</p>
+          <p className="mt-1 text-xl font-black">{money(value)}</p>
+        </div>
+        <button type="button" onClick={onEdit} className="rounded-lg bg-white/80 px-3 py-2 text-xs font-black shadow-sm hover:bg-white">تعديل</button>
+      </div>
     </div>
   );
 }

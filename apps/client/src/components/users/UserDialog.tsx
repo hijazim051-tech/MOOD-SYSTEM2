@@ -3,7 +3,6 @@ import { supabase } from "../../lib/supabase";
 import {
   getBranches,
   getRoles,
-  updateUserProfile,
   type Branch,
   type Role,
   type UserProfile,
@@ -16,7 +15,7 @@ type Props = {
   onSaved?: () => void;
 };
 
-type CreateUserResponse = {
+type ManageUserResponse = {
   success?: boolean;
   error?: string;
   message?: string;
@@ -35,7 +34,6 @@ export default function UserDialog({
 
   const [fullName, setFullName] = useState("");
   const [username, setUsername] = useState("");
-  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [roleId, setRoleId] = useState("");
   const [branchId, setBranchId] = useState("");
@@ -72,7 +70,6 @@ export default function UserDialog({
     if (editingUser) {
       setFullName(editingUser.full_name || "");
       setUsername(editingUser.username || "");
-      setEmail(editingUser.email || "");
       setRoleId(editingUser.role_id || "");
       setBranchId(editingUser.branch_id || "");
       setIsActive(editingUser.is_active);
@@ -86,7 +83,6 @@ export default function UserDialog({
   function resetForm() {
     setFullName("");
     setUsername("");
-    setEmail("");
     setPassword("");
     setRoleId("");
     setBranchId("");
@@ -100,51 +96,37 @@ export default function UserDialog({
     onClose();
   }
 
-  async function createUser() {
-    const { data, error } = await supabase.functions.invoke<CreateUserResponse>(
-      "create-user",
+  async function manageUser(action: "create" | "update") {
+    const { data, error } = await supabase.functions.invoke<ManageUserResponse>(
+      "manage-user",
       {
         body: {
+          action,
+          userId: editingUser?.id,
           fullName: fullName.trim(),
           username: username.trim(),
-          email: email.trim().toLowerCase(),
-          password,
+          password: action === "create" ? password : undefined,
           roleId,
           branchId,
           isActive,
         },
-      }
+      },
     );
 
-    if (error) {
-      throw new Error(error.message || "فشل الاتصال بخدمة إنشاء المستخدم");
-    }
-
-    if (!data?.success) {
-      throw new Error(
-        data?.error || data?.message || "فشل إنشاء المستخدم"
-      );
-    }
+    if (error) throw new Error(error.message || "فشل الاتصال بخدمة إدارة المستخدم");
+    if (!data?.success) throw new Error(data?.error || data?.message || "فشل حفظ المستخدم");
   }
 
   async function handleSave() {
     const cleanFullName = fullName.trim();
     const cleanUsername = username.trim();
-    const cleanEmail = email.trim().toLowerCase();
-
     if (
       !cleanFullName ||
       !cleanUsername ||
-      !cleanEmail ||
       !roleId ||
       !branchId
     ) {
       alert("عبّي كل البيانات");
-      return;
-    }
-
-    if (!cleanEmail.includes("@")) {
-      alert("اكتب بريد إلكتروني صحيح");
       return;
     }
 
@@ -157,19 +139,10 @@ export default function UserDialog({
 
     try {
       if (isEditMode && editingUser) {
-        await updateUserProfile({
-          id: editingUser.id,
-          fullName: cleanFullName,
-          username: cleanUsername,
-          email: cleanEmail,
-          roleId,
-          branchId,
-          isActive,
-        });
-
-        alert("تم تعديل المستخدم بنجاح");
+        await manageUser("update");
+        alert("تم تعديل المستخدم وبيانات الدخول بنجاح");
       } else {
-        await createUser();
+        await manageUser("create");
         alert("تم إنشاء المستخدم بنجاح");
       }
 
@@ -223,12 +196,12 @@ export default function UserDialog({
           />
 
           <input
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            value={username.trim() ? `${username.trim().toLowerCase()}@mood.local` : ""}
+            readOnly
             type="email"
-            className="rounded-xl border p-3"
-            placeholder="البريد الإلكتروني"
-            disabled={saving}
+            className="rounded-xl border bg-gray-50 p-3 text-gray-500"
+            placeholder="بريد الدخول يُنشأ تلقائيًا"
+            title="بريد تسجيل الدخول يُنشأ تلقائيًا من اسم المستخدم"
           />
 
           {!isEditMode && (

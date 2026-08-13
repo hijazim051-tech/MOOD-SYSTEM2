@@ -160,6 +160,9 @@ function App() {
     } = await supabase.auth.getUser();
 
     setIsLoggedIn(Boolean(user));
+    setUserRole("employee");
+    setUserBranchId(null);
+    setCanViewAllBranches(false);
 
     if (user) {
       const profile = await getCurrentUserRole();
@@ -231,21 +234,29 @@ function App() {
           .order("created_at", { ascending: false })
           .limit(100),
 
-        supabase
-          .from("product_details")
-          .select(`
-            id,
-            product_id,
-            name,
-            color,
-            stock,
-            alert_limit,
-            products (
-              name
-            )
-          `)
-          .order("stock", { ascending: true })
-          .limit(30),
+        (() => {
+          let query = supabase
+            .from("branch_product_stock")
+            .select(`
+              branch_id,
+              product_detail_id,
+              stock,
+              alert_limit,
+              product_details:product_detail_id (
+                id,
+                name,
+                color,
+                products (
+                  name
+                )
+              )
+            `)
+            .gt("alert_limit", 0)
+            .order("stock", { ascending: true })
+            .limit(100);
+          if (userBranchId) query = query.eq("branch_id", userBranchId);
+          return query;
+        })(),
 
         supabase
           .from("ready_products")
@@ -356,34 +367,23 @@ function App() {
       }
 
       for (const material of stockResult.data || []) {
-        const productRelation = material.products as
-          | { name?: string | null }
-          | Array<{ name?: string | null }>
+        const detailRelation = material.product_details as
+          | { id?: number | null; name?: string | null; color?: string | null; products?: { name?: string | null } | Array<{ name?: string | null }> | null }
+          | Array<{ id?: number | null; name?: string | null; color?: string | null; products?: { name?: string | null } | Array<{ name?: string | null }> | null }>
           | null;
-
-        const productName = Array.isArray(productRelation)
-          ? productRelation[0]?.name
-          : productRelation?.name;
-
-        const materialName = [
-          productName,
-          material.color || material.name,
-        ]
-          .filter(Boolean)
-          .join(" - ");
-
+        const detail = Array.isArray(detailRelation) ? detailRelation[0] : detailRelation;
+        const productRelation = detail?.products;
+        const productName = Array.isArray(productRelation) ? productRelation[0]?.name : productRelation?.name;
+        const materialName = [productName, detail?.color || detail?.name].filter(Boolean).join(" - ");
         const stock = Number(material.stock || 0);
         const alertLimit = Number(material.alert_limit || 0);
 
-        // 0 يعني أن المستخدم لم يطلب تنبيه لهذا المنتج.
+        // التنبيه اختياري بالكامل: 0 = لا تنبيه حتى لو نفد المخزون.
         if (alertLimit <= 0 || stock > alertLimit) continue;
 
         notificationsList.push({
-          id: `stock-${material.id}`,
-          title:
-            stock <= 0
-              ? "نفد من المخزون"
-              : "المخزون منخفض",
+          id: `stock-${String(material.branch_id)}-${String(material.product_detail_id)}`,
+          title: stock <= 0 ? "نفد من المخزون" : "المخزون منخفض",
           description: `${materialName || "منتج"} — المتوفر ${stock}`,
           page: "inventory",
           level: stock <= 0 ? "danger" : "warning",

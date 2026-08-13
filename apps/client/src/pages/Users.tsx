@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { supabase } from "../lib/supabase";
 import {
   getUsers,
   toggleUserStatus,
@@ -127,6 +128,30 @@ export default function Users() {
     return Array.from(new Set(list));
   }, [users]);
 
+
+  async function handleChangePassword(user: UserProfile) {
+    const password = window.prompt(`كلمة المرور الجديدة لـ ${user.full_name || user.username || "المستخدم"}:`);
+    if (password === null) return;
+    if (password.length < 6) {
+      alert("كلمة المرور لازم تكون 6 أحرف أو أكثر");
+      return;
+    }
+
+    const confirmed = window.confirm("تأكيد تغيير كلمة المرور لهذا الحساب؟");
+    if (!confirmed) return;
+
+    try {
+      const { data, error } = await supabase.functions.invoke<{ success?: boolean; error?: string }>("manage-user", {
+        body: { action: "password", userId: user.id, password },
+      });
+      if (error) throw new Error(error.message);
+      if (!data?.success) throw new Error(data?.error || "تعذر تغيير كلمة المرور");
+      alert("تم تغيير كلمة المرور بنجاح");
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "تعذر تغيير كلمة المرور");
+    }
+  }
+
   function UserActions({ user }: { user: UserProfile }) {
     return (
       <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
@@ -157,6 +182,7 @@ export default function Users() {
         <button
           type="button"
           title="إدارة كلمة المرور"
+          onClick={() => void handleChangePassword(user)}
           className="min-h-11 rounded-xl bg-gray-100 px-3 py-2 text-sm font-semibold text-gray-700 transition hover:bg-gray-200"
         >
           🔑 كلمة المرور
