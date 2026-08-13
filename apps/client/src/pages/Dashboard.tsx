@@ -81,6 +81,18 @@ type ExternalDebt = {
   is_closed: boolean;
 };
 
+type FinancialTransaction = {
+  id: string;
+  branch_id: string;
+  source_type: string;
+  source_id: string;
+  direction: "in" | "out";
+  account: "cash" | "bank" | "balance";
+  amount: number;
+  description: string;
+  occurred_at: string;
+};
+
 type SupplierPayment = {
   id: string;
   supplier_id: string | null;
@@ -107,6 +119,7 @@ export default function Dashboard() {
   const [supplierInvoices, setSupplierInvoices] = useState<SupplierInvoice[]>([]);
   const [supplierPayments, setSupplierPayments] = useState<SupplierPayment[]>([]);
   const [externalDebts, setExternalDebts] = useState<ExternalDebt[]>([]);
+  const [financialTransactions, setFinancialTransactions] = useState<FinancialTransaction[]>([]);
   const [backupInfo, setBackupInfo] = useState<BackupInfo>({
     enabled: true,
     reminderDays: 7,
@@ -143,6 +156,7 @@ export default function Dashboard() {
         supplierInvoicesResult,
         supplierPaymentsResult,
         externalDebtsResult,
+        financialTransactionsResult,
         settingsData,
       ] = await Promise.all([
         supabase
@@ -215,6 +229,11 @@ export default function Dashboard() {
           .select("id,branch_id,party_name,direction,original_amount,paid_amount,due_date,notes,is_closed")
           .eq("is_closed", false),
 
+        supabase
+          .from("financial_transactions")
+          .select("id,branch_id,source_type,source_id,direction,account,amount,description,occurred_at")
+          .order("occurred_at", { ascending: false }),
+
         loadSettings(),
       ]);
 
@@ -226,6 +245,7 @@ export default function Dashboard() {
       if (supplierInvoicesResult.error) throw supplierInvoicesResult.error;
       if (supplierPaymentsResult.error) throw supplierPaymentsResult.error;
       if (externalDebtsResult.error) throw externalDebtsResult.error;
+      if (financialTransactionsResult.error) throw financialTransactionsResult.error;
 
       const allOrderRows = (ordersResult.data || []) as DashboardOrder[];
       const allExpenseRows = (expensesResult.data || []) as Expense[];
@@ -247,6 +267,9 @@ export default function Dashboard() {
       setSupplierInvoices(allInvoiceRows.filter(belongsToSelectedBranch));
       setSupplierPayments(allPaymentRows.filter(belongsToSelectedBranch));
       setExternalDebts(((externalDebtsResult.data || []) as ExternalDebt[]).filter(belongsToSelectedBranch));
+      setFinancialTransactions(
+        ((financialTransactionsResult.data || []) as FinancialTransaction[]).filter(belongsToSelectedBranch)
+      );
 
       setBackupInfo({
         enabled: settingsData.backup_enabled ?? true,
@@ -424,23 +447,19 @@ export default function Dashboard() {
   );
 
   const currentBalances = useMemo(() => {
-    const orderCash = activeOrders.reduce((sum, order) => sum + Number(order.cash_amount || 0), 0);
-    const orderBank = activeOrders.reduce((sum, order) => sum + Number(order.bank_amount || 0) + Number(order.transfer_amount || 0), 0);
-    const orderBalance = activeOrders.reduce((sum, order) => sum + Number(order.balance_amount || 0), 0);
+    const totals = { cash: 0, bank: 0, balance: 0 };
 
-    const cashExpenses = expenses.filter((row) => normalizePaymentMethod(row.payment_method || "cash") === "cash").reduce((sum, row) => sum + Number(row.amount || 0), 0);
-    const bankExpenses = expenses.filter((row) => ["bank", "transfer"].includes(normalizePaymentMethod(row.payment_method || ""))).reduce((sum, row) => sum + Number(row.amount || 0), 0);
+    for (const transaction of financialTransactions) {
+      const amount = Number(transaction.amount || 0);
+      const signed = transaction.direction === "out" ? -amount : amount;
 
-    const purchaseCash = supplierInvoices.reduce((sum, row) => sum + Number(row.cash_amount || 0), 0);
-    const purchaseBank = supplierInvoices.reduce((sum, row) => sum + Number(row.bank_amount || 0) + Number(row.transfer_amount || 0), 0);
-    const purchaseBalance = supplierInvoices.reduce((sum, row) => sum + Number(row.balance_amount || 0), 0);
+      if (transaction.account === "cash") totals.cash += signed;
+      else if (transaction.account === "bank") totals.bank += signed;
+      else if (transaction.account === "balance") totals.balance += signed;
+    }
 
-    return {
-      cash: orderCash - cashExpenses - purchaseCash,
-      bank: orderBank - bankExpenses - purchaseBank,
-      balance: orderBalance - purchaseBalance,
-    };
-  }, [activeOrders, expenses, supplierInvoices]);
+    return totals;
+  }, [financialTransactions]);
 
   const externalReceivable = useMemo(() => externalDebts.filter((d) => d.direction === "receivable").reduce((sum, d) => sum + Math.max(Number(d.original_amount || 0) - Number(d.paid_amount || 0), 0), 0), [externalDebts]);
   const externalPayable = useMemo(() => externalDebts.filter((d) => d.direction === "payable").reduce((sum, d) => sum + Math.max(Number(d.original_amount || 0) - Number(d.paid_amount || 0), 0), 0), [externalDebts]);

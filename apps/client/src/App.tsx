@@ -32,6 +32,7 @@ import ActivityLogPage from "./pages/ActivityLog";
 import PackagingEmployee from "./pages/PackagingEmployee";
 import ReadyProducts from "./pages/ReadyProducts";
 import Offers from "./pages/Offers";
+import OfferCreate from "./pages/OfferCreate";
 import PwaControls from "./components/PwaControls";
 import Tasks from "./pages/Tasks";
 import ItemTracking from "./pages/ItemTracking";
@@ -79,6 +80,24 @@ function App() {
 
   useEffect(() => {
     void checkUser();
+  }, []);
+
+  useEffect(() => {
+    function handleMoodNavigate(event: Event) {
+      const customEvent = event as CustomEvent<{ page?: string }>;
+      const nextPage = customEvent.detail?.page;
+      if (!nextPage) return;
+
+      setPage(nextPage);
+      setMobileMenuOpen(false);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    window.addEventListener("mood:navigate", handleMoodNavigate as EventListener);
+
+    return () => {
+      window.removeEventListener("mood:navigate", handleMoodNavigate as EventListener);
+    };
   }, []);
 
   useEffect(() => {
@@ -518,6 +537,7 @@ function App() {
         {page === "packaging" && <PackagingEmployee />}
         {page === "ready-products" && <ReadyProducts />}
         {page === "offers" && <Offers />}
+        {page === "offer-create" && <OfferCreate />}
         {page === "waste" && <Waste />}
         {page === "expenses" && <Expenses />}
         {page === "tasks" && <Tasks />}
