@@ -20,7 +20,7 @@ export default function PurchaseInvoices(){
       items_subtotal,notes,created_at,
       purchase_invoice_items(id,item_kind,item_name_snapshot,detail_name_snapshot,quantity,unit_purchase_price,line_subtotal,notes)
     `).order("invoice_date",{ascending:false}).order("created_at",{ascending:false});
-    if(effectiveBranchId)query=query.eq("branch_id",effectiveBranchId);
+    if(effectiveBranchId)query=selectedBranch?.code==="MAIN"?query.or(`branch_id.eq.${effectiveBranchId},branch_id.is.null`):query.eq("branch_id",effectiveBranchId);
     const {data,error}=await query;
     if(error)alert(`خطأ فواتير المشتريات: ${error.message}`);
     else setRows((data||[]).map((x:any)=>({

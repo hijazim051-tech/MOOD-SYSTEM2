@@ -266,6 +266,7 @@ export function BranchProvider({
 
     setSelectedBranchIdState(safeId);
     localStorage.setItem(storageKey, safeId);
+    window.dispatchEvent(new CustomEvent("mood:branch-changed", { detail: { branchId: safeId } }));
   }
 
   const effectiveBranchId =

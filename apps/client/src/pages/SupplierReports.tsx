@@ -54,7 +54,9 @@ export default function SupplierReports() {
       .limit(2000);
 
     if (effectiveBranchId) {
-      query = query.eq("branch_id", effectiveBranchId);
+      query = selectedBranch?.code === "MAIN"
+        ? query.or(`branch_id.eq.${effectiveBranchId},branch_id.is.null`)
+        : query.eq("branch_id", effectiveBranchId);
     }
 
     const { data, error } = await query;

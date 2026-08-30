@@ -1,0 +1,12 @@
+MOOD - Operations stability review 2026-08-30
+
+Changes in this review:
+1) Orders: MAIN branch now includes legacy rows with branch_id NULL; other branches stay isolated.
+2) Delivery drivers on Orders: MAIN branch includes legacy NULL branch rows without mixing Alpha.
+3) Reports: added branch isolation. MAIN includes legacy NULL branch orders; other branches only see their branch.
+4) Expenses: branch isolation moved into the Supabase query; MAIN includes legacy NULL branch rows.
+5) Suppliers: prevents creating a supplier while viewing All Branches.
+6) Supplier payments: prevents saving while viewing All Branches, prevents payment when balance is already zero, and prevents overpayment beyond remaining debt.
+7) Expenses: prevents creating a new expense while viewing All Branches.
+
+No destructive SQL was added in this review.

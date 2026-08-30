@@ -110,14 +110,37 @@ Deno.serve(async (req) => {
       });
       if (authUpdateError) throw authUpdateError;
 
+      const nextRoleName = String(roleRow.name || "employee").toLowerCase();
+      const nextIsOwner = nextRoleName === "owner";
+
+      const { data: targetProfile, error: targetProfileError } = await admin
+        .from("user_profiles")
+        .select("is_owner")
+        .eq("id", body.userId)
+        .single();
+      if (targetProfileError) throw targetProfileError;
+
+      // لا نسمح بإزالة صفة المالك من آخر حساب مالك في المنظومة بالخطأ.
+      if ((targetProfile as any)?.is_owner && !nextIsOwner) {
+        const { count, error: ownersCountError } = await admin
+          .from("user_profiles")
+          .select("id", { count: "exact", head: true })
+          .eq("is_owner", true);
+        if (ownersCountError) throw ownersCountError;
+        if ((count || 0) <= 1) {
+          throw new Error("لا يمكن تغيير دور آخر حساب مالك في المنظومة");
+        }
+      }
+
       const { error: updateError } = await admin.from("user_profiles").update({
         full_name: body.fullName.trim(),
         username,
         email: loginEmail,
-        role: String(roleRow.name || "employee").toLowerCase(),
+        role: nextRoleName,
         role_id: body.roleId,
         branch_id: body.branchId,
         is_active: body.isActive !== false,
+        is_owner: nextIsOwner,
       }).eq("id", body.userId);
       if (updateError) throw updateError;
       return json({ success: true });

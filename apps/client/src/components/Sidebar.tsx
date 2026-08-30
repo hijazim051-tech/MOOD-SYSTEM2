@@ -1,9 +1,11 @@
 import { useBranch } from "../context/BranchContext";
+import { PAGE_PERMISSION_KEYS } from "../lib/pageAccess";
 
 type SidebarProps = {
   page: string;
   setPage: (page: string) => void;
   userRole: string;
+  allowedPages?: Set<string> | null;
   mobileOpen?: boolean;
   onCloseMobile?: () => void;
 };
@@ -49,6 +51,7 @@ export default function Sidebar({
   page,
   setPage,
   userRole,
+  allowedPages = null,
   mobileOpen = false,
   onCloseMobile,
 }: SidebarProps) {
@@ -126,7 +129,7 @@ export default function Sidebar({
         <nav className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-6">
           <ul className="space-y-2 text-base lg:text-lg">
             {items
-              .filter((item) => !item.roles || item.roles.includes(normalizedRole))
+              .filter((item) => (!item.roles || item.roles.includes(normalizedRole)) && (allowedPages === null || !PAGE_PERMISSION_KEYS.has(item.key) || allowedPages.has(item.key)))
               .map((item) => {
                 const active = page === item.key;
 

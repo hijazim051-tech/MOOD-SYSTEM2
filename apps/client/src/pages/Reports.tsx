@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { useBranch } from "../context/BranchContext";
 
 type PeriodKey =
   | "today"
@@ -37,6 +38,29 @@ type ReportOrder = {
   items: ReportItem[];
 };
 
+
+type ReportReturn = {
+  id: number;
+  orderId: number;
+  returnType: string;
+  returnValue: number;
+  refundAmount: number;
+  createdAt: string;
+};
+
+type ReportExpense = {
+  id: string;
+  expenseDate: string;
+  amount: number;
+  accountingType: string;
+};
+
+type ReportWaste = {
+  id: string;
+  wasteDate: string;
+  totalCost: number;
+};
+
 type PaymentSummary = {
   method: string;
   label: string;
@@ -71,6 +95,10 @@ type FinancialSummary = {
   averageOrder: number;
   collectionRate: number;
   profitMargin: number;
+  returnsValue: number;
+  refunds: number;
+  operatingExpenses: number;
+  wasteCost: number;
 };
 
 const EMPTY_SUMMARY: FinancialSummary = {
@@ -88,10 +116,18 @@ const EMPTY_SUMMARY: FinancialSummary = {
   averageOrder: 0,
   collectionRate: 0,
   profitMargin: 0,
+  returnsValue: 0,
+  refunds: 0,
+  operatingExpenses: 0,
+  wasteCost: 0,
 };
 
 export default function Reports() {
+  const { effectiveBranchId, selectedBranch } = useBranch();
   const [orders, setOrders] = useState<ReportOrder[]>([]);
+  const [returns, setReturns] = useState<ReportReturn[]>([]);
+  const [expenses, setExpenses] = useState<ReportExpense[]>([]);
+  const [waste, setWaste] = useState<ReportWaste[]>([]);
   const [period, setPeriod] = useState<PeriodKey>("month");
   const [loading, setLoading] = useState(true);
   const [customFrom, setCustomFrom] = useState("");
@@ -101,14 +137,14 @@ export default function Reports() {
   const [reportType, setReportType] = useState<"all" | "bouquet" | "box" | "product">("all");
 
   useEffect(() => {
-    loadReports();
-  }, []);
+    void loadReports();
+  }, [effectiveBranchId, selectedBranch?.code]);
 
   async function loadReports() {
     setLoading(true);
 
     try {
-      const { data, error } = await supabase
+      let ordersQuery = supabase
         .from("orders")
         .select(`
           id,
@@ -125,6 +161,7 @@ export default function Reports() {
           payment_method,
           status,
           created_at,
+          branch_id,
           order_custom_items (
             id,
             item_type,
@@ -136,9 +173,45 @@ export default function Reports() {
         `)
         .order("created_at", { ascending: false });
 
-      if (error) throw error;
+      let returnsQuery = supabase
+        .from("order_returns")
+        .select("id,order_id,return_type,return_value,refund_amount,created_at,branch_id")
+        .order("created_at", { ascending: false });
 
-      const formatted: ReportOrder[] = (data || []).map((order: any) => ({
+      let expensesQuery = supabase
+        .from("expenses")
+        .select("id,expense_date,amount,accounting_type,branch_id")
+        .order("expense_date", { ascending: false });
+
+      let wasteQuery = supabase
+        .from("stock_waste")
+        .select("id,waste_date,total_cost,branch_id")
+        .order("waste_date", { ascending: false });
+
+      if (effectiveBranchId) {
+        if (selectedBranch?.code === "MAIN") {
+          const scope = `branch_id.eq.${effectiveBranchId},branch_id.is.null`;
+          ordersQuery = ordersQuery.or(scope);
+          returnsQuery = returnsQuery.or(scope);
+          expensesQuery = expensesQuery.or(scope);
+          wasteQuery = wasteQuery.or(scope);
+        } else {
+          ordersQuery = ordersQuery.eq("branch_id", effectiveBranchId);
+          returnsQuery = returnsQuery.eq("branch_id", effectiveBranchId);
+          expensesQuery = expensesQuery.eq("branch_id", effectiveBranchId);
+          wasteQuery = wasteQuery.eq("branch_id", effectiveBranchId);
+        }
+      }
+
+      const [ordersResult, returnsResult, expensesResult, wasteResult] =
+        await Promise.all([ordersQuery, returnsQuery, expensesQuery, wasteQuery]);
+
+      if (ordersResult.error) throw ordersResult.error;
+      if (returnsResult.error) throw returnsResult.error;
+      if (expensesResult.error) throw expensesResult.error;
+      if (wasteResult.error) throw wasteResult.error;
+
+      const formatted: ReportOrder[] = (ordersResult.data || []).map((order: any) => ({
         id: Number(order.id),
         orderNumber: String(order.order_number || order.id || ""),
         total: Number(order.total || 0),
@@ -164,6 +237,31 @@ export default function Reports() {
       }));
 
       setOrders(formatted);
+      setReturns(
+        (returnsResult.data || []).map((row: any) => ({
+          id: Number(row.id),
+          orderId: Number(row.order_id),
+          returnType: String(row.return_type || "partial"),
+          returnValue: Number(row.return_value ?? row.refund_amount ?? 0),
+          refundAmount: Number(row.refund_amount || 0),
+          createdAt: String(row.created_at || ""),
+        }))
+      );
+      setExpenses(
+        (expensesResult.data || []).map((row: any) => ({
+          id: String(row.id),
+          expenseDate: String(row.expense_date || ""),
+          amount: Number(row.amount || 0),
+          accountingType: String(row.accounting_type || "operating"),
+        }))
+      );
+      setWaste(
+        (wasteResult.data || []).map((row: any) => ({
+          id: String(row.id),
+          wasteDate: String(row.waste_date || ""),
+          totalCost: Number(row.total_cost || 0),
+        }))
+      );
     } catch (error: unknown) {
       alert(getErrorMessage(error));
     } finally {
@@ -196,10 +294,52 @@ export default function Reports() {
     [filteredOrders]
   );
 
-  const summary = useMemo(
-    () => calculateFinancialSummary(completedOrders),
-    [completedOrders]
+  const periodReturns = useMemo(
+    () => returns.filter((row) => isDateInPeriod(row.createdAt, period, customFrom, customTo)),
+    [returns, period, customFrom, customTo]
   );
+
+  const periodExpenses = useMemo(
+    () =>
+      expenses.filter(
+        (row) =>
+          row.accountingType !== "asset" &&
+          isDateInPeriod(`${row.expenseDate}T12:00:00`, period, customFrom, customTo)
+      ),
+    [expenses, period, customFrom, customTo]
+  );
+
+  const periodWaste = useMemo(
+    () => waste.filter((row) => isDateInPeriod(`${row.wasteDate}T12:00:00`, period, customFrom, customTo)),
+    [waste, period, customFrom, customTo]
+  );
+
+  const summary = useMemo(() => {
+    const base = calculateFinancialSummary(completedOrders);
+    const returnsValue = periodReturns.reduce((sum, row) => sum + row.returnValue, 0);
+    const refunds = periodReturns.reduce((sum, row) => sum + row.refundAmount, 0);
+    const operatingExpenses = periodExpenses.reduce((sum, row) => sum + row.amount, 0);
+    const wasteCost = periodWaste.reduce((sum, row) => sum + row.totalCost, 0);
+
+    const sales = Math.max(0, base.sales - returnsValue);
+    const paid = Math.max(0, base.paid - refunds);
+    const netProfit = base.netProfit - returnsValue - operatingExpenses - wasteCost;
+
+    return {
+      ...base,
+      sales,
+      paid,
+      remaining: Math.max(0, sales - paid),
+      netProfit,
+      averageOrder: base.ordersCount > 0 ? sales / base.ordersCount : 0,
+      collectionRate: sales > 0 ? (paid / sales) * 100 : 0,
+      profitMargin: sales > 0 ? (netProfit / sales) * 100 : 0,
+      returnsValue,
+      refunds,
+      operatingExpenses,
+      wasteCost,
+    };
+  }, [completedOrders, periodReturns, periodExpenses, periodWaste]);
 
   const paymentSummary = useMemo<PaymentSummary[]>(() => {
     const map = new Map<
@@ -499,7 +639,7 @@ export default function Reports() {
 
       <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
         <StatCard label="إجمالي المبيعات" value={`${summary.sales.toFixed(2)} د.ل`} valueClass="text-emerald-700" />
-        <StatCard label="صافي الربح" value={`${summary.netProfit.toFixed(2)} د.ل`} valueClass="text-blue-700" />
+        <StatCard label="صافي الربح بعد المرتجعات والمصروفات" value={`${summary.netProfit.toFixed(2)} د.ل`} valueClass="text-blue-700" />
         <StatCard label="عدد الطلبات" value={summary.ordersCount} valueClass="text-purple-700" />
         <StatCard label="متوسط الطلب" value={`${summary.averageOrder.toFixed(2)} د.ل`} valueClass="text-gray-800" />
       </section>
@@ -507,7 +647,7 @@ export default function Reports() {
       <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
         <StatCard label="مبيعات المنتجات" value={`${summary.productsSales.toFixed(2)} د.ل`} valueClass="text-emerald-700" />
         <StatCard label="تكلفة المواد" value={`${summary.cost.toFixed(2)} د.ل`} valueClass="text-orange-700" />
-        <StatCard label="مجمل الربح" value={`${summary.grossProfit.toFixed(2)} د.ل`} valueClass="text-indigo-700" />
+        <StatCard label="مجمل ربح المنتجات قبل المصروفات" value={`${summary.grossProfit.toFixed(2)} د.ل`} valueClass="text-indigo-700" />
         <StatCard label="هامش الربح" value={`${summary.profitMargin.toFixed(1)}%`} valueClass="text-blue-700" />
       </section>
 
@@ -523,6 +663,13 @@ export default function Reports() {
         <StatCard label="مصاريف التوصيل النقدي" value={`${summary.deliveryCashExpenses.toFixed(2)} د.ل`} valueClass="text-red-700" />
         <StatCard label="صافي دخل المنتجات" value={`${Math.max(0, summary.productsSales - summary.cost).toFixed(2)} د.ل`} valueClass="text-emerald-700" />
         <StatCard label="الطلبات الملغاة" value={filteredOrders.filter((o) => normalizeStatus(o.status) === "cancelled").length} valueClass="text-red-700" />
+      </section>
+
+      <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+        <StatCard label="قيمة المرتجعات" value={`${summary.returnsValue.toFixed(2)} د.ل`} valueClass="text-orange-700" />
+        <StatCard label="المبالغ المسترجعة للزبائن" value={`${summary.refunds.toFixed(2)} د.ل`} valueClass="text-red-700" />
+        <StatCard label="المصروفات التشغيلية" value={`${summary.operatingExpenses.toFixed(2)} د.ل`} valueClass="text-rose-700" />
+        <StatCard label="تكلفة الهالك" value={`${summary.wasteCost.toFixed(2)} د.ل`} valueClass="text-amber-700" />
       </section>
 
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
@@ -756,6 +903,10 @@ function calculateFinancialSummary(
     averageOrder: sourceOrders.length > 0 ? sales / sourceOrders.length : 0,
     collectionRate: sales > 0 ? (paid / sales) * 100 : 0,
     profitMargin: productsSales > 0 ? (netProfit / productsSales) * 100 : 0,
+    returnsValue: 0,
+    refunds: 0,
+    operatingExpenses: 0,
+    wasteCost: 0,
   };
 }
 
@@ -813,14 +964,26 @@ function filterOrdersByPeriod(
   });
 }
 
+function isDateInPeriod(
+  value: string,
+  period: PeriodKey,
+  customFrom: string,
+  customTo: string
+) {
+  if (!value) return false;
+  const row = { createdAt: value } as ReportOrder;
+  return filterOrdersByPeriod([row], period, customFrom, customTo).length > 0;
+}
+
 function getOrderNetProfit(order: ReportOrder) {
-  const storedProfit = Number(order.profit || 0);
-
-  if (storedProfit !== 0) {
-    return storedProfit - order.deliveryCashExpense;
-  }
-
-  return order.productsTotal - order.costTotal - order.deliveryCashExpense;
+  // نحسب من الحقول الأصلية دائمًا حتى تكون الطلبات القديمة والجديدة بنفس المعادلة.
+  return (
+    order.productsTotal -
+    order.costTotal +
+    order.deliveryFee -
+    order.discount -
+    order.deliveryCashExpense
+  );
 }
 
 function normalizeItemType(itemType: string): "bouquet" | "box" | "product" {
@@ -866,6 +1029,8 @@ function normalizeStatus(status: string) {
   const value = status.trim().toLowerCase();
 
   if (value.includes("cancel") || value.includes("ملغ")) return "cancelled";
+  if (value.includes("partially_returned") || value.includes("إرجاع جزئي")) return "partially_returned";
+  if (value === "returned" || value.includes("مرتجع") || value.includes("مُرجع")) return "returned";
   if (value.includes("deliver") || value.includes("تم التوصيل")) return "delivered";
   if (value.includes("complete") || value.includes("مكتمل")) return "completed";
   if (value.includes("ready") || value.includes("جاهز")) return "ready";
@@ -884,6 +1049,8 @@ function getStatusLabel(status: string) {
     ready: "جاهز",
     completed: "مكتمل",
     delivered: "تم التوصيل",
+    returned: "مرتجع",
+    partially_returned: "إرجاع جزئي",
     cancelled: "ملغي",
   };
 

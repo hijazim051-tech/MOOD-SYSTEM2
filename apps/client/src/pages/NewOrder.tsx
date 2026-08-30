@@ -577,12 +577,12 @@ export default function NewOrder() {
     const errors = validateOrder();
 
     if (errors.length > 0) {
-      const proceed = confirm(
-        `تنبيهات قبل الحفظ (لا تمنع الحفظ):\n\n${errors
+      alert(
+        `لا يمكن حفظ الطلب قبل تصحيح التالي:\n\n${errors
           .map((error, index) => `${index + 1}. ${error}`)
-          .join("\n")}\n\nهل تريد الحفظ رغم هذه التنبيهات؟`
+          .join("\n")}`
       );
-      if (!proceed) return;
+      return;
     }
 
     const todayKey = new Date().toISOString().slice(0, 10);

@@ -170,7 +170,7 @@ export async function saveBuiltOrder(input: {
   const hasPackagingItems = items.some(
     (item) =>
       item.itemType === "bouquet" ||
-false
+      (item.itemType === "box" && Number(item.contentValue || 0) > 0)
   );
 
   const { data: orderData, error: orderError } = await supabase
@@ -190,7 +190,10 @@ false
       profit:
         Number(totals.productsTotal || 0) -
         Number(totals.costTotal || 0) -
-        externalCostTotal,
+        externalCostTotal +
+        Number(payment.deliveryFee || 0) -
+        Number(payment.discount || 0) -
+        deliveryCashExpense,
       delivery_fee: payment.deliveryFee,
       discount: payment.discount,
       paid_amount: totalPaid,
@@ -244,7 +247,7 @@ false
 
     const needsPackaging =
       item.itemType === "bouquet" ||
-false;
+      (item.itemType === "box" && Number(item.contentValue || 0) > 0);
 
     /*
      * السجل الحديث المستخدم في واجهة موظف التغليف.

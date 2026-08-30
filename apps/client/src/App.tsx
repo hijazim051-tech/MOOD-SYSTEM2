@@ -13,6 +13,7 @@ import Settings from "./pages/Settings";
 import Sidebar from "./components/Sidebar";
 import Login from "./pages/Login";
 import { getCurrentUserRole } from "./lib/auth";
+import { getCurrentUserPageAccess, PAGE_PERMISSION_KEYS } from "./lib/pageAccess";
 import Dashboard from "./pages/Dashboard";
 import POS from "./pages/POS";
 import Orders from "./pages/Orders";
@@ -67,6 +68,7 @@ function App() {
   const [userRole, setUserRole] = useState("employee");
   const [userBranchId, setUserBranchId] = useState<string | null>(null);
   const [canViewAllBranches, setCanViewAllBranches] = useState(false);
+  const [allowedPages, setAllowedPages] = useState<Set<string> | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [notificationPreferences, setNotificationPreferences] = useState<Map<string, UserNotificationPreference>>(new Map());
 
@@ -81,6 +83,15 @@ function App() {
   useEffect(() => {
     void checkUser();
   }, []);
+
+  useEffect(() => {
+    if (allowedPages === null) return;
+    if (!PAGE_PERMISSION_KEYS.has(page) || allowedPages.has(page)) return;
+
+    const fallbackPages = ["packaging", "dashboard", "orders", "new-order", "tasks"];
+    const fallback = fallbackPages.find((key) => !PAGE_PERMISSION_KEYS.has(key) || allowedPages.has(key));
+    if (fallback) setPage(fallback);
+  }, [allowedPages, page]);
 
   useEffect(() => {
     function handleMoodNavigate(event: Event) {
@@ -109,8 +120,14 @@ function App() {
       void loadNotifications();
     }, 60_000);
 
-    return () => window.clearInterval(interval);
-  }, [isLoggedIn]);
+    const handleBranchChange = () => void loadNotifications();
+    window.addEventListener("mood:branch-changed", handleBranchChange);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("mood:branch-changed", handleBranchChange);
+    };
+  }, [isLoggedIn, userRole, userBranchId]);
 
   useEffect(() => {
     if (!notificationsInitializedRef.current) {
@@ -163,11 +180,26 @@ function App() {
     setUserRole("employee");
     setUserBranchId(null);
     setCanViewAllBranches(false);
+    setAllowedPages(null);
 
     if (user) {
       const profile = await getCurrentUserRole();
 
+      if (!profile) {
+        await supabase.auth.signOut({ scope: "local" });
+        setIsLoggedIn(false);
+        setCheckingLogin(false);
+        return;
+      }
+
       if (profile) {
+        if (!profile.is_active) {
+          await supabase.auth.signOut();
+          setIsLoggedIn(false);
+          setCheckingLogin(false);
+          return;
+        }
+
         const role = String(
           profile.role || "employee"
         ).toLowerCase();
@@ -175,6 +207,14 @@ function App() {
         setUserRole(role);
         setUserBranchId(profile.branch_id || null);
         setCanViewAllBranches(Boolean(profile.access_all_branches) || ["owner", "admin"].includes(role));
+
+        try {
+          setAllowedPages(await getCurrentUserPageAccess(role));
+        } catch (error) {
+          console.warn("تعذر تحميل صلاحيات الصفحات:", error);
+          setAllowedPages(new Set());
+        }
+
         console.log("Role from Supabase:", role);
       }
 
@@ -205,34 +245,41 @@ function App() {
     try {
       const now = new Date();
       const notificationsList: AppNotification[] = [];
+      const storedBranchSelection = localStorage.getItem(`mood:selected-branch:${userRole}`);
+      const notificationBranchId = userBranchId || (storedBranchSelection && storedBranchSelection !== "all" ? storedBranchSelection : null);
 
       const [
         ordersResult,
         stockResult,
         readyProductsResult,
       ] = await Promise.all([
-        supabase
-          .from("orders")
-          .select(`
-            id,
-            order_number,
-            customer_name,
-            status,
-            delivery_date,
-            delivery_time,
-            created_at,
-            delivery_driver_name,
-            driver_collection_amount,
-            driver_money_status,
-            handed_to_driver_at
-          `)
-          .in("status", [
-            "packaging",
-            "ready",
-            "out_for_delivery",
-          ])
-          .order("created_at", { ascending: false })
-          .limit(100),
+        (() => {
+          let query = supabase
+            .from("orders")
+            .select(`
+              id,
+              order_number,
+              customer_name,
+              status,
+              delivery_date,
+              delivery_time,
+              created_at,
+              delivery_driver_name,
+              driver_collection_amount,
+              driver_money_status,
+              handed_to_driver_at,
+              branch_id
+            `)
+            .in("status", [
+              "packaging",
+              "ready",
+              "out_for_delivery",
+            ])
+            .order("created_at", { ascending: false })
+            .limit(100);
+          if (notificationBranchId) query = query.eq("branch_id", notificationBranchId);
+          return query;
+        })(),
 
         (() => {
           let query = supabase
@@ -254,23 +301,28 @@ function App() {
             .gt("alert_limit", 0)
             .order("stock", { ascending: true })
             .limit(100);
-          if (userBranchId) query = query.eq("branch_id", userBranchId);
+          if (notificationBranchId) query = query.eq("branch_id", notificationBranchId);
           return query;
         })(),
 
-        supabase
-          .from("ready_products")
-          .select(`
-            id,
-            ready_number,
-            name,
-            product_type,
-            status,
-            created_at
-          `)
-          .eq("status", "ready")
-          .order("created_at", { ascending: true })
-          .limit(30),
+        (() => {
+          let query = supabase
+            .from("ready_products")
+            .select(`
+              id,
+              ready_number,
+              name,
+              product_type,
+              status,
+              created_at,
+              branch_id
+            `)
+            .eq("status", "ready")
+            .order("created_at", { ascending: true })
+            .limit(30);
+          if (notificationBranchId) query = query.eq("branch_id", notificationBranchId);
+          return query;
+        })(),
       ]);
 
       if (ordersResult.error) throw ordersResult.error;
@@ -491,6 +543,9 @@ function App() {
     return <Login onLogin={checkUser} />;
   }
 
+  const canOpenPage = (pageKey: string) =>
+    allowedPages === null || !PAGE_PERMISSION_KEYS.has(pageKey) || allowedPages.has(pageKey);
+
   return (
     <BranchProvider userRole={userRole} userBranchId={userBranchId} canViewAllBranches={canViewAllBranches}>
     <div className="flex min-h-screen bg-gray-100">
@@ -498,6 +553,7 @@ function App() {
         page={page}
         setPage={setPage}
         userRole={userRole}
+        allowedPages={allowedPages}
         mobileOpen={mobileMenuOpen}
         onCloseMobile={() => setMobileMenuOpen(false)}
       />
@@ -519,54 +575,54 @@ function App() {
 
         <BranchScopeBanner />
         <section className="app-page-shell">
-        {page === "dashboard" && <Dashboard />}
-        {page === "pos" && <POS setPage={setPage} />}
-        {page === "orders" && (
+        {page === "dashboard" && canOpenPage("dashboard") && <Dashboard />}
+        {page === "pos" && canOpenPage("pos") && <POS setPage={setPage} />}
+        {page === "orders" && canOpenPage("orders") && (
           <Orders
             setPage={setPage}
             userRole={userRole}
           />
         )}
-        {page === "new-order" && <NewOrder />}
-        {page === "drafts" && <Drafts setPage={setPage} />}
-        {page === "items" && <Items />}
-        {page === "inventory" && <Inventory />}
-                {page === "purchases" && <Purchases />}
-        {page === "treasury" && <Treasury />}
-        {page === "suppliers" && <Suppliers />}
-        {page === "packaging" && <PackagingEmployee />}
-        {page === "ready-products" && <ReadyProducts />}
-        {page === "offers" && <Offers />}
-        {page === "offer-create" && <OfferCreate />}
-        {page === "waste" && <Waste />}
-        {page === "expenses" && <Expenses />}
-        {page === "tasks" && <Tasks />}
-        {page === "item-tracking" && <ItemTracking />}
-        {page === "supplier-reports" && <SupplierReports />}
-        {page === "purchase-invoices" && <PurchaseInvoices />}
-        {page === "branches" && <Branches />}
-        {page === "advanced-operations" && <AdvancedOperations />}
-        {page === "growth-center" && <GrowthCenter />}
-        {page === "attendance" && <Attendance />}
-        {page === "customers" && <Customers />}
-        {page === "employees" && <Employees />}
+        {page === "new-order" && canOpenPage("new-order") && <NewOrder />}
+        {page === "drafts" && canOpenPage("drafts") && <Drafts setPage={setPage} />}
+        {page === "items" && canOpenPage("items") && <Items />}
+        {page === "inventory" && canOpenPage("inventory") && <Inventory />}
+                {page === "purchases" && canOpenPage("purchases") && <Purchases />}
+        {page === "treasury" && canOpenPage("treasury") && <Treasury />}
+        {page === "suppliers" && canOpenPage("suppliers") && <Suppliers />}
+        {page === "packaging" && canOpenPage("packaging") && <PackagingEmployee />}
+        {page === "ready-products" && canOpenPage("ready-products") && <ReadyProducts />}
+        {page === "offers" && canOpenPage("offers") && <Offers />}
+        {page === "offer-create" && canOpenPage("offer-create") && <OfferCreate />}
+        {page === "waste" && canOpenPage("waste") && <Waste />}
+        {page === "expenses" && canOpenPage("expenses") && <Expenses />}
+        {page === "tasks" && canOpenPage("tasks") && <Tasks />}
+        {page === "item-tracking" && canOpenPage("item-tracking") && <ItemTracking />}
+        {page === "supplier-reports" && canOpenPage("supplier-reports") && <SupplierReports />}
+        {page === "purchase-invoices" && canOpenPage("purchase-invoices") && <PurchaseInvoices />}
+        {page === "branches" && canOpenPage("branches") && <Branches />}
+        {page === "advanced-operations" && canOpenPage("advanced-operations") && <AdvancedOperations />}
+        {page === "growth-center" && canOpenPage("growth-center") && <GrowthCenter />}
+        {page === "attendance" && canOpenPage("attendance") && <Attendance />}
+        {page === "customers" && canOpenPage("customers") && <Customers />}
+        {page === "employees" && canOpenPage("employees") && <Employees />}
 
-        {page === "activity-log" &&
+        {page === "activity-log" && canOpenPage("activity-log") &&
           (userRole === "owner" ||
             userRole === "admin") && (
             <ActivityLogPage />
           )}
 
-        {page === "users" &&
+        {page === "users" && canOpenPage("users") &&
           (userRole === "owner" ||
             userRole === "admin") && <Users />}
 
-        {page === "reports" &&
+        {page === "reports" && canOpenPage("reports") &&
           userRole !== "employee" && <Reports />}
 
-        {page === "whatsapp-campaigns" && (userRole === "owner" || userRole === "admin" || userRole === "manager") && <WhatsAppCampaigns />}
-        {page === "whatsapp-logs" && <WhatsAppLogs />}
-        {page === "settings" && <Settings />}
+        {page === "whatsapp-campaigns" && canOpenPage("whatsapp-campaigns") && (userRole === "owner" || userRole === "admin" || userRole === "manager") && <WhatsAppCampaigns />}
+        {page === "whatsapp-logs" && canOpenPage("whatsapp-logs") && <WhatsAppLogs />}
+        {page === "settings" && canOpenPage("settings") && <Settings />}
         </section>
       </main>
     </div>

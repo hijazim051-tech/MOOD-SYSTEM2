@@ -1,0 +1,11 @@
+MOOD workflow review - 2026-08-30
+
+Changes in this batch:
+1) Orders containing a box with contentValue > 0 now correctly enter the packaging workflow instead of becoming Ready immediately.
+2) The related order_items record for such boxes now starts as packaging_status=pending.
+3) New Order validation is now blocking for required/invalid data (customer name/phone, item data, stock, prices, discount/delivery values) instead of allowing save after a warning.
+4) Customers page shows legacy MAIN-branch orders with NULL branch_id while keeping other branches isolated.
+5) Packaging Employee page shows legacy MAIN-branch packaging orders with NULL branch_id while keeping other branches isolated.
+
+No destructive SQL was added and no database rows were deleted.
+Build note: dependency installation in the review environment timed out, so a full npm build could not be completed here.

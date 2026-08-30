@@ -127,7 +127,7 @@ export default function Orders({
   setPage,
   userRole = "employee",
 }: Props) {
-  const { effectiveBranchId } = useBranch();
+  const { effectiveBranchId, selectedBranch } = useBranch();
   const [orders, setOrders] = useState<Order[]>([]);
   const [savedDrivers, setSavedDrivers] = useState<Array<{ name: string; phone: string }>>([]);
   const [loading, setLoading] = useState(true);
@@ -175,7 +175,7 @@ export default function Orders({
 
   useEffect(() => {
     void loadOrders();
-  }, [effectiveBranchId]);
+  }, [effectiveBranchId, selectedBranch?.code]);
 
   async function loadOrders() {
     setLoading(true);
@@ -236,7 +236,11 @@ export default function Orders({
       if (error) throw error;
 
       const branchRows = effectiveBranchId
-        ? (data || []).filter((row: any) => String(row.branch_id || "") === effectiveBranchId)
+        ? (data || []).filter(
+            (row: any) =>
+              String(row.branch_id || "") === effectiveBranchId ||
+              (selectedBranch?.code === "MAIN" && !row.branch_id)
+          )
         : (data || []);
       const formattedOrders: Order[] = branchRows.map((order: any) => ({
         id: Number(order.id),
@@ -335,7 +339,12 @@ export default function Orders({
         .select("name,phone,is_active,branch_id")
         .eq("is_active", true)
         .order("name");
-      if (effectiveBranchId) driversQuery = driversQuery.eq("branch_id", effectiveBranchId);
+      if (effectiveBranchId) {
+        driversQuery =
+          selectedBranch?.code === "MAIN"
+            ? driversQuery.or(`branch_id.eq.${effectiveBranchId},branch_id.is.null`)
+            : driversQuery.eq("branch_id", effectiveBranchId);
+      }
       const { data: driversData, error: driversError } = await driversQuery;
       if (driversError) {
         console.warn("تعذر تحميل المندوبين المحفوظين:", driversError.message);
@@ -677,6 +686,30 @@ export default function Orders({
     }
   }
 
+  async function markDriverDelivered(order: Order) {
+    if (!window.confirm(`تأكيد أن المندوب ${order.deliveryDriverName || ""} سلّم الطلب #${order.orderNumber} للعميل؟`)) return;
+
+    setBusyOrderId(order.id);
+    try {
+      const { error } = await supabase.rpc("mark_driver_delivered", {
+        p_order_id: order.id,
+      });
+      if (error) throw error;
+
+      setSelectedOrder(null);
+      await loadOrders();
+      alert(
+        order.driverCollectionAmount > 0
+          ? "تم تسجيل التسليم ✅ والمبلغ ما زال مع المندوب لحين التسوية."
+          : "تم تسجيل تسليم الطلب ✅"
+      );
+    } catch (error: unknown) {
+      alert(getErrorMessage(error));
+    } finally {
+      setBusyOrderId(null);
+    }
+  }
+
   async function settleDriverMoney(order: Order) {
     const confirmed = window.confirm(
       `تأكيد استلام ${order.driverCollectionAmount.toFixed(2)} د.ل من المندوب ${order.deliveryDriverName}؟`
@@ -931,6 +964,7 @@ export default function Orders({
           onAllocateInventory={() => void allocateReservedOrder(selectedOrder)}
           onCustomerCollection={() => openCustomerCollection(selectedOrder)}
           onDriverHandover={() => openDriverDialog(selectedOrder)}
+          onDriverDelivered={() => void markDriverDelivered(selectedOrder)}
           onEdit={() => void prepareFullEdit(selectedOrder)}
           onCancel={() => void cancelOrder(selectedOrder)}
           onDelete={() => void deleteOrder(selectedOrder)}
@@ -1320,6 +1354,7 @@ function OrderDetailsDialog({
   onAllocateInventory,
   onCustomerCollection,
   onDriverHandover,
+  onDriverDelivered,
   onEdit,
   onCancel,
   onDelete,
@@ -1337,6 +1372,7 @@ function OrderDetailsDialog({
   onAllocateInventory: () => void;
   onCustomerCollection: () => void;
   onDriverHandover: () => void;
+  onDriverDelivered: () => void;
   onEdit: () => void;
   onCancel: () => void;
   onDelete: () => void;
@@ -1550,11 +1586,12 @@ function OrderDetailsDialog({
         {order.status === "packaging" && <button type="button" disabled={busy} onClick={onMarkReady} className="rounded-xl bg-emerald-700 px-5 py-3 font-semibold text-white disabled:opacity-50">تم التغليف</button>}
         {order.status === "ready" && <button type="button" disabled={busy} onClick={onCustomerCollection} className="rounded-xl bg-green-700 px-5 py-3 font-semibold text-white disabled:opacity-50">استلمه العميل</button>}
         {order.status === "ready" && <button type="button" disabled={busy} onClick={onDriverHandover} className="rounded-xl bg-blue-700 px-5 py-3 font-semibold text-white disabled:opacity-50">استلمه المندوب</button>}
+        {order.status === "out_for_delivery" && <button type="button" disabled={busy} onClick={onDriverDelivered} className="rounded-xl bg-emerald-700 px-5 py-3 font-semibold text-white disabled:opacity-50">المندوب سلّم الطلب</button>}
         {!order.isLocked && !["cancelled","out_for_delivery","delivered"].includes(order.status) && <button type="button" onClick={onEdit} className="rounded-xl bg-orange-100 px-5 py-3 font-semibold text-orange-700">تعديل كامل</button>}
         {(order.status === "delivered" || order.status === "partially_returned") && <button type="button" onClick={onReturn} className="rounded-xl bg-orange-700 px-5 py-3 font-semibold text-white">إرجاع الطلب</button>}
         <button type="button" onClick={onWhatsApp} className="rounded-xl bg-green-600 px-5 py-3 font-semibold text-white">إرسال الفاتورة واتساب</button>
         <button type="button" onClick={onPrint} className="rounded-xl bg-gray-900 px-5 py-3 font-semibold text-white">الطباعة</button>
-        {!["cancelled","delivered"].includes(order.status) && <button type="button" disabled={busy} onClick={onCancel} className="rounded-xl bg-red-100 px-5 py-3 font-semibold text-red-700 disabled:opacity-50">إلغاء الطلب</button>}
+        {!["cancelled","delivered","returned","partially_returned"].includes(order.status) && <button type="button" disabled={busy} onClick={onCancel} className="rounded-xl bg-red-100 px-5 py-3 font-semibold text-red-700 disabled:opacity-50">إلغاء الطلب</button>}
         {canDelete && order.status === "cancelled" && <button type="button" disabled={busy} onClick={onDelete} className="rounded-xl bg-red-700 px-5 py-3 font-semibold text-white disabled:opacity-50">حذف نهائي</button>}
       </div>
     </Modal>

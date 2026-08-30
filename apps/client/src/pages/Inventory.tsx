@@ -148,8 +148,8 @@ export default function Inventory() {
       alert("تأكد من الأرقام المدخلة");
       return;
     }
-    if (alertLimit < 0 || averageUnitCost < 0 || buyPrice < 0 || sellPrice < 0) {
-      alert("الأسعار وحد التنبيه لا يمكن أن تكون سالبة");
+    if (nextStock < 0 || alertLimit < 0 || averageUnitCost < 0 || buyPrice < 0 || sellPrice < 0) {
+      alert("الكمية والأسعار وحد التنبيه لا يمكن أن تكون سالبة");
       return;
     }
     if (!editForm.productName.trim() || !editForm.detailName.trim()) {
@@ -278,7 +278,7 @@ export default function Inventory() {
         <table className="w-full min-w-[1050px] text-right">
           <thead>
             <tr className="border-b bg-gray-50">
-              <Th>الفئة</Th><Th>المنتج</Th><Th>التفصيل</Th><Th>الكمية</Th><Th>حد التنبيه</Th><Th>متوسط التكلفة</Th><Th>سعر البيع</Th><Th>القيمة</Th><Th>الإجراء</Th>
+              <Th>الفئة</Th><Th>المنتج</Th><Th>التفصيل</Th><Th>النوع</Th><Th>الكمية</Th><Th>حد التنبيه</Th><Th>متوسط التكلفة</Th><Th>سعر الشراء</Th><Th>سعر البيع</Th><Th>القيمة</Th><Th>الإجراء</Th>
             </tr>
           </thead>
           <tbody>
@@ -286,10 +286,10 @@ export default function Inventory() {
               const low = x.alertLimit > 0 && x.stock > 0 && x.stock <= x.alertLimit;
               return (
                 <tr key={x.id} className="border-b">
-                  <Td>{x.categoryName}</Td><Td>{x.productName}</Td><Td>{x.detailName}</Td>
+                  <Td>{x.categoryName}</Td><Td>{x.productName}</Td><Td>{x.detailName}</Td><Td>{x.materialType || "-"}</Td>
                   <Td><b className={x.stock <= 0 ? "text-red-700" : low ? "text-orange-700" : "text-emerald-700"}>{x.stock}</b></Td>
                   <Td>{x.alertLimit > 0 ? x.alertLimit : "بدون تنبيه"}</Td>
-                  <Td>{x.averageUnitCost.toFixed(2)}</Td><Td>{x.sellPrice.toFixed(2)}</Td><Td>{x.inventoryValue.toFixed(2)} د.ل</Td>
+                  <Td>{x.averageUnitCost.toFixed(2)}</Td><Td>{x.buyPrice.toFixed(2)}</Td><Td>{x.sellPrice.toFixed(2)}</Td><Td>{x.inventoryValue.toFixed(2)} د.ل</Td>
                   <Td><button type="button" disabled={!effectiveBranchId} onClick={() => openEdit(x)} className="rounded-lg bg-blue-100 px-4 py-2 font-bold text-blue-700 disabled:opacity-40">تعديل</button></Td>
                 </tr>
               );

@@ -27,13 +27,13 @@ type DriverAccount = {
 };
 
 export default function DriverCollections() {
-  const { effectiveBranchId } = useBranch();
+  const { effectiveBranchId, selectedBranch } = useBranch();
   const [rows, setRows] = useState<DeliveryOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<DriverAccount | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
 
-  useEffect(() => { void load(); }, [effectiveBranchId]);
+  useEffect(() => { void load(); }, [effectiveBranchId, selectedBranch?.code]);
 
   async function load() {
     setLoading(true);
@@ -42,7 +42,12 @@ export default function DriverCollections() {
       .select("id,order_number,customer_name,customer_phone,delivery_address,delivery_driver_name,delivery_driver_phone,handed_to_driver_at,delivered_at,driver_collection_amount,driver_money_status,driver_money_notes,status,branch_id")
       .not("delivery_driver_name", "is", null)
       .order("handed_to_driver_at", { ascending: false });
-    if (effectiveBranchId) query = query.eq("branch_id", effectiveBranchId);
+    if (effectiveBranchId) {
+      query =
+        selectedBranch?.code === "MAIN"
+          ? query.or(`branch_id.eq.${effectiveBranchId},branch_id.is.null`)
+          : query.eq("branch_id", effectiveBranchId);
+    }
     const { data, error } = await query;
     setLoading(false);
     if (error) return alert(error.message);

@@ -39,7 +39,7 @@ type CustomerSummary = {
 };
 
 export default function Customers() {
-  const { effectiveBranchId } = useBranch();
+  const { effectiveBranchId, selectedBranch } = useBranch();
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -77,7 +77,11 @@ export default function Customers() {
       if (error) throw error;
 
       const customerRows = effectiveBranchId
-        ? (data || []).filter((row: any) => String(row.branch_id || "") === effectiveBranchId)
+        ? (data || []).filter(
+            (row: any) =>
+              String(row.branch_id || "") === effectiveBranchId ||
+              (selectedBranch?.code === "MAIN" && !row.branch_id)
+          )
         : (data || []);
       const formatted: OrderRow[] = customerRows.map((order: any) => ({
         id: Number(order.id),

@@ -44,6 +44,24 @@ type Invoice = {
   notes: string;
 };
 type EntryRow = { quantity: string; buy: string; sell: string };
+type PurchaseDraft = {
+  version: 1;
+  branchId: string;
+  savedAt: string;
+  supplierId: string;
+  supplierSearch: string;
+  invoiceNo: string;
+  invoiceDate: string;
+  purchaseMode: "cash" | "credit" | "mixed";
+  paymentMethod: "cash" | "bank_transfer";
+  paidAmount: string;
+  deliveryCost: string;
+  otherCosts: string;
+  invoiceNotes: string;
+  items: DraftItem[];
+};
+
+const PURCHASE_DRAFT_KEY_PREFIX = "mood-purchase-draft-v1:";
 
 const input =
   "w-full rounded-xl border border-gray-200 bg-white p-3 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
@@ -76,6 +94,8 @@ export default function Purchases() {
 
   const [items, setItems] = useState<DraftItem[]>([]);
   const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
+  const [draftReady, setDraftReady] = useState(false);
+  const [draftSavedAt, setDraftSavedAt] = useState("");
 
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
@@ -94,7 +114,11 @@ export default function Purchases() {
   const [newSupplierPhone, setNewSupplierPhone] = useState("");
 
   useEffect(() => {
-    void load();
+    setDraftReady(false);
+    void load().then(() => {
+      restorePurchaseDraft();
+      setDraftReady(true);
+    });
   }, [effectiveBranchId]);
 
   const selectedSupplier = useMemo(
@@ -198,6 +222,97 @@ export default function Purchases() {
     }
   }, [purchaseMode, total]);
 
+  useEffect(() => {
+    if (!draftReady || !effectiveBranchId || editingInvoiceId) return;
+
+    const hasContent =
+      Boolean(supplierId || supplierSearch.trim() || invoiceNo.trim() || invoiceNotes.trim()) ||
+      items.length > 0 ||
+      Number(deliveryCost || 0) > 0 ||
+      Number(otherCosts || 0) > 0;
+
+    const key = purchaseDraftKey(effectiveBranchId);
+    if (!hasContent) {
+      localStorage.removeItem(key);
+      setDraftSavedAt("");
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      const savedAt = new Date().toISOString();
+      const draft: PurchaseDraft = {
+        version: 1,
+        branchId: effectiveBranchId,
+        savedAt,
+        supplierId,
+        supplierSearch,
+        invoiceNo,
+        invoiceDate,
+        purchaseMode,
+        paymentMethod,
+        paidAmount,
+        deliveryCost,
+        otherCosts,
+        invoiceNotes,
+        items,
+      };
+      localStorage.setItem(key, JSON.stringify(draft));
+      setDraftSavedAt(savedAt);
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    draftReady,
+    effectiveBranchId,
+    editingInvoiceId,
+    supplierId,
+    supplierSearch,
+    invoiceNo,
+    invoiceDate,
+    purchaseMode,
+    paymentMethod,
+    paidAmount,
+    deliveryCost,
+    otherCosts,
+    invoiceNotes,
+    items,
+  ]);
+
+  function restorePurchaseDraft() {
+    if (!effectiveBranchId) return;
+    try {
+      const raw = localStorage.getItem(purchaseDraftKey(effectiveBranchId));
+      if (!raw) {
+        setDraftSavedAt("");
+        return;
+      }
+      const draft = JSON.parse(raw) as PurchaseDraft;
+      if (!draft || draft.version !== 1 || draft.branchId !== effectiveBranchId) return;
+
+      setEditingInvoiceId(null);
+      setSupplierId(String(draft.supplierId || ""));
+      setSupplierSearch(String(draft.supplierSearch || ""));
+      setInvoiceNo(String(draft.invoiceNo || ""));
+      setInvoiceDate(String(draft.invoiceDate || today()));
+      setPurchaseMode(draft.purchaseMode || "cash");
+      setPaymentMethod(draft.paymentMethod || "cash");
+      setPaidAmount(String(draft.paidAmount || ""));
+      setDeliveryCost(String(draft.deliveryCost || ""));
+      setOtherCosts(String(draft.otherCosts || ""));
+      setInvoiceNotes(String(draft.invoiceNotes || ""));
+      setItems(Array.isArray(draft.items) ? draft.items : []);
+      setDraftSavedAt(String(draft.savedAt || ""));
+    } catch {
+      localStorage.removeItem(purchaseDraftKey(effectiveBranchId));
+      setDraftSavedAt("");
+    }
+  }
+
+  function clearPurchaseDraft() {
+    if (effectiveBranchId) localStorage.removeItem(purchaseDraftKey(effectiveBranchId));
+    setDraftSavedAt("");
+  }
+
   async function load() {
     setLoading(true);
     try {
@@ -243,7 +358,8 @@ export default function Purchases() {
           .filter(
             (row: any) =>
               !effectiveBranchId ||
-              String(row.branch_id || "") === effectiveBranchId,
+              String(row.branch_id || "") === effectiveBranchId ||
+              (selectedBranch?.code === "MAIN" && !row.branch_id),
           )
           .map((row: any) => ({
             id: String(row.id),
@@ -292,7 +408,8 @@ export default function Purchases() {
           .filter(
             (row: any) =>
               !effectiveBranchId ||
-              String(row.branch_id || "") === effectiveBranchId,
+              String(row.branch_id || "") === effectiveBranchId ||
+              (selectedBranch?.code === "MAIN" && !row.branch_id),
           )
           .map((row: any) => ({
             id: String(row.id),
@@ -578,6 +695,7 @@ export default function Purchases() {
       }
 
       const wasEditing = Boolean(editingInvoiceId);
+      if (!wasEditing) clearPurchaseDraft();
       reset();
       await load();
       alert(
@@ -657,6 +775,7 @@ export default function Purchases() {
   }
 
   function reset() {
+    clearPurchaseDraft();
     setEditingInvoiceId(null);
     setSupplierId("");
     setSupplierSearch("");
@@ -699,6 +818,28 @@ export default function Purchases() {
         <div className="rounded-xl bg-amber-100 p-4 font-black text-amber-900">
           ✏️ أنت تعدل فاتورة موجودة. عند الحفظ سيُعاد حساب
           المخزون والرصيد.
+        </div>
+      )}
+
+      {!editingInvoiceId && draftSavedAt && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-violet-50 p-4 text-violet-900">
+          <div>
+            <p className="font-black">📝 مسودة المشتريات محفوظة تلقائيًا</p>
+            <p className="mt-1 text-xs font-bold text-violet-700">
+              آخر حفظ: {formatDateTime(draftSavedAt)} — لو طلعت من الصفحة ورجعت، تكمل من نفس المكان.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              if (!window.confirm("حذف مسودة فاتورة المشتريات الحالية؟")) return;
+              clearPurchaseDraft();
+              reset();
+            }}
+            className="rounded-lg bg-white px-4 py-2 text-sm font-black text-red-700 shadow-sm"
+          >
+            حذف المسودة
+          </button>
         </div>
       )}
 
@@ -1447,6 +1588,17 @@ function Modal({
       </div>
     </div>
   );
+}
+
+function purchaseDraftKey(branchId: string) {
+  return `${PURCHASE_DRAFT_KEY_PREFIX}${branchId}`;
+}
+
+function formatDateTime(value: string) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleString("ar-LY", { dateStyle: "short", timeStyle: "short" });
 }
 
 function money(value: number) {

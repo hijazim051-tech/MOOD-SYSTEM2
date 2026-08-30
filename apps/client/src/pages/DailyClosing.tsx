@@ -78,7 +78,11 @@ export default function DailyClosing() {
 
       const scope = (rows: any[]) =>
         effectiveBranchId
-          ? rows.filter((row) => String(row.branch_id || "") === effectiveBranchId)
+          ? rows.filter((row) =>
+              selectedBranch?.code === "MAIN"
+                ? !row.branch_id || String(row.branch_id) === effectiveBranchId
+                : String(row.branch_id || "") === effectiveBranchId
+            )
           : rows;
 
       setOrders(scope(ordersResult.data || []));

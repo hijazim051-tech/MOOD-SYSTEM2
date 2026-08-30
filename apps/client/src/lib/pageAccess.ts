@@ -1,5 +1,14 @@
 import { supabase } from "./supabase";
 
+export const PAGE_PERMISSION_KEYS = new Set([
+  "packaging", "dashboard", "tasks", "task-create", "orders", "new-order",
+  "ready-products", "offers", "production", "items", "inventory", "item-tracking",
+  "purchases", "purchase-invoices", "waste", "expenses", "activity-log", "trash",
+  "whatsapp-logs", "suppliers", "supplier-reports", "customers", "employees",
+  "attendance", "withdrawals", "drivers", "branches", "users", "reports",
+  "daily-closing", "settings",
+]);
+
 export async function getCurrentUserPageAccess(role: string) {
   const normalized = String(role || "employee").toLowerCase();
   if (["owner", "admin"].includes(normalized)) return null;
@@ -12,6 +21,7 @@ export async function getCurrentUserPageAccess(role: string) {
   ]);
   const rows = permissions || [];
   const ids = rows.map((x: any) => String(x.id));
+  if (ids.length === 0) return null;
   const [{ data: roleRows }, { data: overrides }] = await Promise.all([
     profile?.role_id
       ? supabase.from("role_permissions").select("permission_id").eq("role_id", profile.role_id).in("permission_id", ids)

@@ -19,7 +19,7 @@ const input =
   "w-full rounded-xl border border-gray-200 bg-white p-3 outline-none focus:border-emerald-600";
 
 export default function Treasury() {
-  const { effectiveBranchId } = useBranch();
+  const { effectiveBranchId, selectedBranch } = useBranch();
   const [rows, setRows] = useState<Tx[]>([]);
   const [loading, setLoading] = useState(true);
   const [account, setAccount] = useState<Account>("cash");
@@ -40,7 +40,11 @@ export default function Treasury() {
         .select("id,direction,account,amount,description,occurred_at,source_type")
         .order("occurred_at", { ascending: false });
 
-      if (effectiveBranchId) query = query.eq("branch_id", effectiveBranchId);
+      if (effectiveBranchId) {
+        query = selectedBranch?.code === "MAIN"
+          ? query.or(`branch_id.eq.${effectiveBranchId},branch_id.is.null`)
+          : query.eq("branch_id", effectiveBranchId);
+      }
 
       const { data, error } = await query;
       if (error) throw error;

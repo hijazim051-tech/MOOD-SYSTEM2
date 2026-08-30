@@ -193,7 +193,7 @@ export default function OrderReturnDialog({
 
     if (
       !window.confirm(
-        "تأكيد تسجيل الإرجاع؟ السليم يرجع إلى مخزون نفس الفرع، والتالف يسجل في الهالك."
+        "تأكيد تسجيل الإرجاع؟ السليم يرجع إلى مخزون نفس الفرع، والتالف لا يرجع للمخزون."
       )
     ) {
       return;
@@ -285,7 +285,7 @@ export default function OrderReturnDialog({
           <div>
             <h2 className="text-2xl font-bold">إرجاع الطلب #{orderNumber}</h2>
             <p className="mt-1 text-sm text-gray-500">
-              السليم يرجع للمخزون، والتالف يسجل في الهالك بدون إضافته للمخزون.
+              السليم يرجع لمخزون نفس الفرع، والتالف لا يرجع للمخزون.
             </p>
           </div>
           <button

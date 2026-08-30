@@ -762,7 +762,10 @@ export async function updateBuiltOrder(input: {
       profit:
         Number(totals.productsTotal || 0) -
         Number(totals.costTotal || 0) -
-        externalCostTotal,
+        externalCostTotal +
+        Number(payment.deliveryFee || 0) -
+        Number(payment.discount || 0) -
+        deliveryCashExpense,
 
       delivery_fee: Number(payment.deliveryFee || 0),
       discount: Number(payment.discount || 0),

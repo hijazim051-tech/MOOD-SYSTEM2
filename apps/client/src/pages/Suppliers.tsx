@@ -49,7 +49,7 @@ const inputClass =
   "w-full rounded-xl border border-gray-200 bg-white p-3 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
 
 export default function Suppliers() {
- const { effectiveBranchId } = useBranch();
+ const { effectiveBranchId, selectedBranch } = useBranch();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [invoices, setInvoices] = useState<PurchaseInvoice[]>([]);
   const [payments, setPayments] = useState<SupplierPayment[]>([]);
@@ -207,9 +207,10 @@ export default function Suppliers() {
       if (invoicesResult.error) throw invoicesResult.error;
       if (paymentsResult.error) throw paymentsResult.error;
 
-      const scopedSuppliers = effectiveBranchId ? (suppliersResult.data || []).filter((x:any)=>String(x.branch_id||"")===effectiveBranchId) : (suppliersResult.data || []);
-      const scopedInvoices = effectiveBranchId ? (invoicesResult.data || []).filter((x:any)=>String(x.branch_id||"")===effectiveBranchId) : (invoicesResult.data || []);
-      const scopedPayments = effectiveBranchId ? (paymentsResult.data || []).filter((x:any)=>String(x.branch_id||"")===effectiveBranchId) : (paymentsResult.data || []);
+      const belongsToBranch = (x: any) => !effectiveBranchId || String(x.branch_id || "") === effectiveBranchId || (selectedBranch?.code === "MAIN" && !x.branch_id);
+      const scopedSuppliers = (suppliersResult.data || []).filter(belongsToBranch);
+      const scopedInvoices = (invoicesResult.data || []).filter(belongsToBranch);
+      const scopedPayments = (paymentsResult.data || []).filter(belongsToBranch);
       setSuppliers(
         scopedSuppliers.map((supplier: any) => ({
           id: String(supplier.id),
@@ -805,6 +806,11 @@ function SupplierDialog({
   const [saving, setSaving] = useState(false);
 
   async function save() {
+    if (!branchId) {
+      alert("اختر فرع محدد قبل حفظ المورد");
+      return;
+    }
+
     if (!name.trim()) {
       alert("اسم المورد مطلوب");
       return;
@@ -925,6 +931,16 @@ function PaymentDialog({
   const [saving, setSaving] = useState(false);
 
   async function savePayment() {
+    if (!branchId) {
+      alert("اختر فرع محدد قبل تسجيل الدفعة");
+      return;
+    }
+
+    if (supplier.balance <= 0) {
+      alert("حساب المورد مسدد ولا يوجد رصيد متبقي");
+      return;
+    }
+
     const numericAmount = Number(amount);
 
     if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
@@ -932,11 +948,9 @@ function PaymentDialog({
       return;
     }
 
-    if (numericAmount > supplier.balance && supplier.balance > 0) {
-      const proceed = window.confirm(
-        "قيمة الدفعة أكبر من الرصيد المتبقي. هل تريد الحفظ رغم ذلك؟"
-      );
-      if (!proceed) return;
+    if (numericAmount > supplier.balance) {
+      alert("قيمة الدفعة لا يمكن أن تكون أكبر من الرصيد المتبقي");
+      return;
     }
 
     setSaving(true);

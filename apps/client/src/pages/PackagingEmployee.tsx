@@ -87,7 +87,7 @@ const inputClass =
   "w-full rounded-xl border border-gray-200 bg-white p-3 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100";
 
 export default function PackagingEmployee() {
-  const { effectiveBranchId } = useBranch();
+  const { effectiveBranchId, selectedBranch } = useBranch();
   const [orders, setOrders] = useState<PackagingOrder[]>([]);
   const [tiers, setTiers] = useState<UsageTier[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
@@ -330,7 +330,13 @@ export default function PackagingEmployee() {
         ]),
       );
 
-      const packagingRows = effectiveBranchId ? (ordersResult.data || []).filter((row: any) => String(row.branch_id || "") === effectiveBranchId) : (ordersResult.data || []);
+      const packagingRows = effectiveBranchId
+        ? (ordersResult.data || []).filter(
+            (row: any) =>
+              String(row.branch_id || "") === effectiveBranchId ||
+              (selectedBranch?.code === "MAIN" && !row.branch_id)
+          )
+        : (ordersResult.data || []);
       const mappedOrders: PackagingOrder[] = packagingRows.map(
         (order: any) => ({
           id: Number(order.id),

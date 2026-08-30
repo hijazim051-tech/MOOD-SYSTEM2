@@ -18,6 +18,8 @@ type DashboardOrder = {
   bank_amount?: number | null;
   transfer_amount?: number | null;
   balance_amount?: number | null;
+  delivery_fee: number | null;
+  discount: number | null;
   delivery_cash_expense: number | null;
   status: string | null;
   created_at: string;
@@ -47,6 +49,7 @@ type Expense = {
   expense_date: string;
   amount: number | null;
   payment_method?: string | null;
+  accounting_type?: string | null;
   branch_id: string | null;
 };
 
@@ -176,6 +179,8 @@ export default function Dashboard() {
             bank_amount,
             transfer_amount,
             balance_amount,
+            delivery_fee,
+            discount,
             delivery_cash_expense,
             status,
             created_at,
@@ -216,7 +221,7 @@ export default function Dashboard() {
 
         supabase
           .from("expenses")
-          .select("id,expense_date,amount,payment_method,branch_id")
+          .select("id,expense_date,amount,payment_method,accounting_type,branch_id")
           .order("expense_date", { ascending: false }),
 
         supabase
@@ -262,7 +267,9 @@ export default function Dashboard() {
       const allPaymentRows = (supplierPaymentsResult.data || []) as SupplierPayment[];
 
       const belongsToSelectedBranch = (row: { branch_id?: string | null }) =>
-        !effectiveBranchId || String(row.branch_id || "") === effectiveBranchId;
+        !effectiveBranchId ||
+        String(row.branch_id || "") === effectiveBranchId ||
+        (selectedBranch?.code === "MAIN" && !row.branch_id);
 
       setAllOrders(allOrderRows);
       setAllExpenses(allExpenseRows);
@@ -377,7 +384,11 @@ export default function Dashboard() {
   const todayExpenses = useMemo(
     () =>
       expenses
-        .filter((expense) => expense.expense_date === today)
+        .filter(
+          (expense) =>
+            expense.expense_date === today &&
+            String(expense.accounting_type || "operating") !== "asset"
+        )
         .reduce((sum, expense) => sum + Number(expense.amount || 0), 0),
     [expenses, today]
   );
@@ -393,18 +404,13 @@ export default function Dashboard() {
   const todayProfitBeforeExpenses = useMemo(
     () =>
       todayOrders.reduce((sum, order) => {
-        const storedProfit = Number(order.profit || 0);
-        const deliveryCashExpense = Number(order.delivery_cash_expense || 0);
-
-        if (storedProfit !== 0) {
-          return sum + storedProfit - deliveryCashExpense;
-        }
-
         return (
           sum +
           Number(order.products_total || 0) -
-          Number(order.cost_total || 0) -
-          deliveryCashExpense
+          Number(order.cost_total || 0) +
+          Number(order.delivery_fee || 0) -
+          Number(order.discount || 0) -
+          Number(order.delivery_cash_expense || 0)
         );
       }, 0),
     [todayOrders]
@@ -645,7 +651,8 @@ export default function Dashboard() {
       const branchExpenses = allExpenses.filter(
         (expense) =>
           String(expense.branch_id || "") === branch.id &&
-          expense.expense_date >= comparisonStartDate
+          expense.expense_date >= comparisonStartDate &&
+          String(expense.accounting_type || "operating") !== "asset"
       );
       const branchWaste = allWaste.filter(
         (record) =>
@@ -658,11 +665,14 @@ export default function Dashboard() {
         0
       );
       const grossProfit = branchOrders.reduce((sum, order) => {
-        const storedProfit = Number(order.profit || 0);
-        const deliveryExpense = Number(order.delivery_cash_expense || 0);
-        return sum + (storedProfit !== 0
-          ? storedProfit - deliveryExpense
-          : Number(order.products_total || 0) - Number(order.cost_total || 0) - deliveryExpense);
+        return (
+          sum +
+          Number(order.products_total || 0) -
+          Number(order.cost_total || 0) +
+          Number(order.delivery_fee || 0) -
+          Number(order.discount || 0) -
+          Number(order.delivery_cash_expense || 0)
+        );
       }, 0);
       const expenseTotal = branchExpenses.reduce(
         (sum, expense) => sum + Number(expense.amount || 0),
