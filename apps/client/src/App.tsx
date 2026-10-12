@@ -45,6 +45,17 @@ import AdvancedOperations from "./pages/AdvancedOperations";
 import GrowthCenter from "./pages/GrowthCenter";
 import WhatsAppLogs from "./pages/WhatsAppLogs";
 import WhatsAppCampaigns from "./pages/WhatsAppCampaigns";
+import DailyClosing from "./pages/DailyClosing";
+import DriverCollections from "./pages/DriverCollections";
+import Drivers from "./pages/Drivers";
+import OpeningStock from "./pages/OpeningStock";
+import OrderReturns from "./pages/OrderReturns";
+import OwnerNotifications from "./pages/OwnerNotifications";
+import ProductionCenter from "./pages/ProductionCenter";
+import Recipes from "./pages/Recipes";
+import TaskCreate from "./pages/TaskCreate";
+import Trash from "./pages/Trash";
+import Withdrawals from "./pages/Withdrawals";
 import { getUserNotificationPreferences, preferenceMap, type UserNotificationPreference } from "./lib/notificationPreferences";
 import { BranchProvider, useBranch } from "./context/BranchContext";
 import { refreshWhatsAppSettings } from "./lib/whatsappSettings";
@@ -622,6 +633,17 @@ function App() {
 
         {page === "whatsapp-campaigns" && canOpenPage("whatsapp-campaigns") && (userRole === "owner" || userRole === "admin" || userRole === "manager") && <WhatsAppCampaigns />}
         {page === "whatsapp-logs" && canOpenPage("whatsapp-logs") && <WhatsAppLogs />}
+        {page === "daily-closing" && canOpenPage("daily-closing") && <DailyClosing />}
+        {page === "driver-collections" && <DriverCollections />}
+        {page === "drivers" && canOpenPage("drivers") && <Drivers />}
+        {page === "opening-stock" && <OpeningStock />}
+        {page === "order-returns" && <OrderReturns />}
+        {page === "owner-notifications" && <OwnerNotifications />}
+        {page === "production" && canOpenPage("production") && <ProductionCenter />}
+        {page === "recipes" && <Recipes />}
+        {page === "task-create" && canOpenPage("task-create") && <TaskCreate />}
+        {page === "trash" && canOpenPage("trash") && <Trash />}
+        {page === "withdrawals" && canOpenPage("withdrawals") && <Withdrawals />}
         {page === "settings" && canOpenPage("settings") && <Settings />}
         </section>
       </main>
