@@ -49,7 +49,7 @@ import DailyClosing from "./pages/DailyClosing";
 import DriverCollections from "./pages/DriverCollections";
 import Drivers from "./pages/Drivers";
 import OpeningStock from "./pages/OpeningStock";
-import OrderReturns from "./pages/OrderReturns";
+import { OrderReturns } from "./pages/OrderReturns";
 import OwnerNotifications from "./pages/OwnerNotifications";
 import ProductionCenter from "./pages/ProductionCenter";
 import Recipes from "./pages/Recipes";
